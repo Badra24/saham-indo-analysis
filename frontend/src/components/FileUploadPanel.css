@@ -1,0 +1,241 @@
+/* FileUploadPanel Styles - Dark Theme */
+
+.file-upload-panel {
+    width: 100%;
+}
+
+.file-upload-panel.inline {
+    margin: 0;
+}
+
+/* Dropzone */
+.file-upload-dropzone {
+    border: 2px dashed rgba(255, 255, 255, 0.2);
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: rgba(30, 30, 40, 0.6);
+}
+
+.file-upload-dropzone:hover {
+    border-color: rgba(100, 200, 255, 0.4);
+    background: rgba(30, 30, 40, 0.8);
+}
+
+.file-upload-dropzone.dragging {
+    border-color: #00d4ff;
+    background: rgba(0, 212, 255, 0.1);
+    transform: scale(1.02);
+}
+
+.file-upload-dropzone.api-limited {
+    border-color: rgba(255, 170, 0, 0.5);
+}
+
+/* API Limit Warning */
+.api-limit-warning {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: center;
+    color: #ffaa00;
+    font-size: 12px;
+    margin-bottom: 12px;
+    padding: 6px 12px;
+    background: rgba(255, 170, 0, 0.1);
+    border-radius: 6px;
+}
+
+/* Dropzone Content */
+.dropzone-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.upload-icon {
+    color: rgba(255, 255, 255, 0.4);
+    margin-bottom: 8px;
+}
+
+.file-upload-dropzone:hover .upload-icon,
+.file-upload-dropzone.dragging .upload-icon {
+    color: #00d4ff;
+}
+
+.dropzone-title {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.dropzone-subtitle {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 12px;
+    margin: 0;
+}
+
+/* File Types */
+.file-types {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.file-type {
+    padding: 4px 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.6);
+    text-transform: uppercase;
+}
+
+/* Upload Status */
+.upload-status {
+    padding: 16px;
+    border-radius: 12px;
+    text-align: center;
+}
+
+.upload-status.uploading {
+    background: rgba(30, 30, 40, 0.6);
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.upload-status.success {
+    background: rgba(0, 200, 100, 0.1);
+    border: 1px solid rgba(0, 200, 100, 0.3);
+}
+
+.upload-status.error {
+    background: rgba(255, 80, 80, 0.1);
+    border: 1px solid rgba(255, 80, 80, 0.3);
+}
+
+/* Spinner */
+.spinner {
+    animation: spin 1s linear infinite;
+    color: #00d4ff;
+    margin-bottom: 8px;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Status Header */
+.status-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.success-icon {
+    color: #00ff88;
+}
+
+.error-icon {
+    color: #ff5050;
+}
+
+.reset-btn {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+    padding: 4px;
+    margin-left: auto;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.reset-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.8);
+}
+
+/* Parsed Preview */
+.parsed-preview {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 8px;
+}
+
+.preview-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 12px;
+}
+
+.preview-row .label {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.preview-row .value {
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 500;
+}
+
+.preview-row .value.bullish {
+    color: #00ff88;
+}
+
+.preview-row .value.bearish {
+    color: #ff5050;
+}
+
+.preview-row .value.phase-accumulation {
+    color: #00ff88;
+}
+
+.preview-row .value.phase-distribution {
+    color: #ff5050;
+}
+
+.preview-row .value.phase-neutral {
+    color: #ffaa00;
+}
+
+/* Disguise Alert */
+.disguise-alert {
+    margin-top: 8px;
+    padding: 8px;
+    background: rgba(255, 200, 0, 0.1);
+    border-radius: 6px;
+    font-size: 11px;
+    color: #ffcc00;
+    text-align: center;
+}
+
+/* Warnings */
+.warnings {
+    margin-top: 8px;
+}
+
+.warning-item {
+    font-size: 11px;
+    color: #ffaa00;
+    padding: 4px 0;
+}
+
+/* Error Message */
+.error-message {
+    color: #ff5050;
+    font-size: 12px;
+    margin: 0;
+}

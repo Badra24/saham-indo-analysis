@@ -1,0 +1,49 @@
+/* Drawing Canvas Overlay Styles */
+
+.drawing-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 50;
+    /* Default to none so we can pan the chart */
+    pointer-events: none;
+    transition: cursor 0.1s ease;
+}
+
+/* Allow interaction when we are forcefully active (e.g. over a handle) */
+.drawing-canvas.interactive {
+    pointer-events: auto;
+}
+
+.drawing-canvas.active-tool {
+    pointer-events: auto;
+    cursor: crosshair;
+}
+
+.drawing-canvas.is-drawing {
+    cursor: crosshair;
+}
+
+/* Tool-specific cursors */
+.drawing-canvas.active-tool[data-tool="rectangle"] {
+    cursor: cell;
+}
+
+.drawing-canvas.active-tool[data-tool="fibonacci"] {
+    cursor: ns-resize;
+}
+
+.drawing-canvas.active-tool[data-tool="longPosition"],
+.drawing-canvas.active-tool[data-tool="shortPosition"] {
+    cursor: cell;
+}
+
+.drawing-canvas.active-tool[data-tool="fibFan"] {
+    cursor: crosshair;
+}
+
+.drawing-canvas.active-tool[data-tool="xabcd"] {
+    cursor: crosshair;
+}

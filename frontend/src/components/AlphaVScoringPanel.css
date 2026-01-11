@@ -1,0 +1,345 @@
+/* AlphaVScoringPanel Styles - Premium Dark Theme */
+
+.alpha-v-panel {
+    background: linear-gradient(145deg, rgba(20, 20, 30, 0.95), rgba(30, 30, 45, 0.9));
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 20px;
+    backdrop-filter: blur(10px);
+}
+
+.alpha-v-panel.loading,
+.alpha-v-panel.error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    min-height: 200px;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.alpha-v-panel.error {
+    color: #ff5050;
+}
+
+.alpha-v-panel.error button {
+    margin-top: 8px;
+    padding: 8px 16px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+}
+
+/* Panel Header */
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.header-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.refresh-btn {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.refresh-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.refresh-btn .spinning {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Main Score Section */
+.main-score-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+/* Score Gauge */
+.score-gauge {
+    position: relative;
+    width: 120px;
+    height: 120px;
+}
+
+.gauge-svg {
+    width: 100%;
+    height: 100%;
+}
+
+.gauge-progress {
+    transition: stroke-dashoffset 1s ease-out;
+}
+
+.gauge-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.gauge-score {
+    font-size: 28px;
+    font-weight: 700;
+    color: white;
+}
+
+.gauge-grade {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.grade-label {
+    margin-top: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* Sub Scores */
+.sub-scores {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.sub-score-item {
+    display: grid;
+    grid-template-columns: 1fr 100px 32px;
+    align-items: center;
+    gap: 12px;
+}
+
+.sub-score-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.sub-score-weight {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.sub-score-bar-container {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.sub-score-bar {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.8s ease-out;
+}
+
+.sub-score-value {
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+    text-align: right;
+}
+
+/* Strategy Section */
+.strategy-section {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 16px;
+    text-align: center;
+}
+
+.strategy-label {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+}
+
+.strategy-text {
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.strategy-text.grade-a {
+    color: #00FF88;
+}
+
+.strategy-text.grade-b {
+    color: #88FF00;
+}
+
+.strategy-text.grade-c {
+    color: #FFCC00;
+}
+
+.strategy-text.grade-d {
+    color: #FF8800;
+}
+
+.strategy-text.grade-e {
+    color: #FF0044;
+}
+
+/* Data Status */
+.data-status {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 16px;
+}
+
+.status-title {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+}
+
+.status-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.status-item.available {
+    color: #00ff88;
+}
+
+.status-item.missing {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+
+.status-item.available .status-dot {
+    background: #00ff88;
+}
+
+.status-item.missing .status-dot {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.upload-data-btn {
+    width: 100%;
+    margin-top: 10px;
+    padding: 8px;
+    background: linear-gradient(90deg, rgba(0, 200, 255, 0.2), rgba(0, 150, 255, 0.2));
+    border: 1px solid rgba(0, 200, 255, 0.3);
+    border-radius: 6px;
+    color: #00d4ff;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.upload-data-btn:hover {
+    background: linear-gradient(90deg, rgba(0, 200, 255, 0.3), rgba(0, 150, 255, 0.3));
+}
+
+/* Upload Section */
+.upload-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+/* Confidence Notes */
+.confidence-notes {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 10px;
+    padding: 12px;
+}
+
+.notes-title {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+
+.notes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.note-item {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.7);
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.note-item:last-child {
+    border-bottom: none;
+}
+
+/* Loading Spinner */
+.loading-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    border-top-color: #00d4ff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}

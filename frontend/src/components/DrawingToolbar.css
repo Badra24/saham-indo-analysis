@@ -1,0 +1,424 @@
+/* Drawing Toolbar Styles - TradingView-like Dark Theme */
+
+.drawing-toolbar {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 100;
+
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+
+    background: rgba(22, 22, 31, 0.95);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 10px;
+
+    box-shadow:
+        0 4px 20px rgba(0, 0, 0, 0.4),
+        0 0 40px rgba(99, 102, 241, 0.1);
+}
+
+.toolbar-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.toolbar-title {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted, #64748b);
+    padding: 0 4px;
+    margin-bottom: 2px;
+}
+
+.toolbar-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.toolbar-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+
+    color: var(--text-secondary, #94a3b8);
+    font-size: 12px;
+    font-weight: 500;
+
+    cursor: pointer;
+    transition: all 0.2s ease;
+
+    white-space: nowrap;
+    min-width: 130px;
+}
+
+.toolbar-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary, #f8fafc);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.toolbar-btn.active {
+    background: linear-gradient(135deg,
+            rgba(99, 102, 241, 0.2) 0%,
+            rgba(139, 92, 246, 0.2) 100%);
+    color: #fff;
+    border-color: rgba(99, 102, 241, 0.5);
+    box-shadow:
+        0 0 15px rgba(99, 102, 241, 0.3),
+        inset 0 1px 1px rgba(255, 255, 255, 0.1);
+}
+
+.tool-icon {
+    font-size: 14px;
+    width: 20px;
+    text-align: center;
+}
+
+.tool-label {
+    flex: 1;
+    text-align: left;
+}
+
+.toolbar-divider {
+    height: 1px;
+    background: linear-gradient(90deg,
+            transparent 0%,
+            rgba(255, 255, 255, 0.1) 50%,
+            transparent 100%);
+    margin: 4px 0;
+}
+
+.toolbar-actions {
+    gap: 4px;
+}
+
+.action-btn {
+    justify-content: center;
+}
+
+.action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.action-btn:disabled:hover {
+    background: transparent;
+    color: var(--text-secondary, #94a3b8);
+    border-color: transparent;
+}
+
+.delete-btn:not(:disabled):hover {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+.clear-btn:not(:disabled):hover {
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.3);
+}
+
+/* Per-Type Clear Buttons */
+.type-clear-list {
+    gap: 2px;
+}
+
+.type-clear-btn {
+    font-size: 11px;
+    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.type-clear-btn .tool-icon {
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.type-clear-btn .tool-label {
+    flex: 1;
+    font-size: 11px;
+}
+
+.type-count {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+    min-width: 18px;
+    text-align: center;
+}
+
+.type-clear-btn:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+.type-clear-btn:hover .tool-icon {
+    opacity: 1;
+}
+
+.type-clear-btn:hover .type-count {
+    background: rgba(239, 68, 68, 0.3);
+}
+
+.cancel-btn {
+    background: rgba(139, 92, 246, 0.1) !important;
+    border-color: rgba(139, 92, 246, 0.3) !important;
+    color: #8b5cf6 !important;
+    animation: cancelPulse 1.5s ease-in-out infinite;
+}
+
+.cancel-btn:hover {
+    background: rgba(139, 92, 246, 0.25) !important;
+    border-color: rgba(139, 92, 246, 0.5) !important;
+}
+
+@keyframes cancelPulse {
+
+    0%,
+    100% {
+        box-shadow: 0 0 5px rgba(139, 92, 246, 0.2);
+    }
+
+    50% {
+        box-shadow: 0 0 15px rgba(139, 92, 246, 0.4);
+    }
+}
+
+.toolbar-hint {
+    padding: 8px 10px;
+    background: rgba(99, 102, 241, 0.1);
+    border-radius: 6px;
+    border: 1px solid rgba(99, 102, 241, 0.2);
+
+    font-size: 11px;
+    color: var(--text-secondary, #94a3b8);
+    text-align: center;
+    line-height: 1.4;
+}
+
+/* Animation for active tool */
+@keyframes toolPulse {
+
+    0%,
+    100% {
+        box-shadow:
+            0 0 15px rgba(99, 102, 241, 0.3),
+            inset 0 1px 1px rgba(255, 255, 255, 0.1);
+    }
+
+    50% {
+        box-shadow:
+            0 0 25px rgba(99, 102, 241, 0.5),
+            inset 0 1px 1px rgba(255, 255, 255, 0.15);
+    }
+}
+
+.toolbar-btn.active {
+    animation: toolPulse 2s ease-in-out infinite;
+}
+
+/* Responsive adjustments */
+@media (max-height: 600px) {
+    .drawing-toolbar {
+        padding: 6px;
+        gap: 4px;
+    }
+
+    .toolbar-btn {
+        padding: 6px 10px;
+        min-width: 110px;
+    }
+
+    .tool-icon {
+        font-size: 12px;
+    }
+
+    .tool-label {
+        font-size: 11px;
+    }
+}
+
+/* Collapsed Toolbar Styles */
+.drawing-toolbar.collapsed {
+    padding: 8px;
+    gap: 6px;
+    min-width: auto;
+    width: auto;
+}
+
+.toolbar-tools-collapsed {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.toolbar-btn-mini {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    min-width: auto;
+    width: 36px;
+    height: 36px;
+
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+
+    color: var(--text-secondary, #94a3b8);
+    font-size: 14px;
+
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.toolbar-btn-mini:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary, #f8fafc);
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.toolbar-btn-mini.active {
+    background: linear-gradient(135deg,
+            rgba(99, 102, 241, 0.25) 0%,
+            rgba(139, 92, 246, 0.25) 100%);
+    color: #fff;
+    border-color: rgba(99, 102, 241, 0.5);
+    box-shadow: 0 0 12px rgba(99, 102, 241, 0.3);
+}
+
+.toolbar-btn-mini .tool-icon {
+    font-size: 16px;
+}
+
+.clear-mini {
+    position: relative;
+}
+
+.clear-mini:hover {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+.mini-count {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    background: #ef4444;
+    color: white;
+    font-size: 9px;
+    font-weight: 600;
+    padding: 2px 5px;
+    border-radius: 8px;
+    min-width: 14px;
+    text-align: center;
+}
+
+.expand-btn,
+.collapse-btn {
+    background: rgba(99, 102, 241, 0.1);
+    border-color: rgba(99, 102, 241, 0.2);
+    color: #818cf8;
+}
+
+.expand-btn:hover,
+.collapse-btn:hover {
+    background: rgba(99, 102, 241, 0.2);
+    border-color: rgba(99, 102, 241, 0.4);
+    color: #a5b4fc;
+}
+
+.expand-btn .tool-icon {
+    font-size: 12px;
+}
+
+/* Magnet Mode Button Styles */
+.magnet-section {
+    margin-top: 4px;
+}
+
+.magnet-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(59, 130, 246, 0.08);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 8px;
+    color: var(--text-secondary, #94a3b8);
+    transition: all 0.2s ease;
+}
+
+.magnet-btn:hover {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: rgba(59, 130, 246, 0.4);
+    color: #60a5fa;
+}
+
+.magnet-btn.active {
+    background: linear-gradient(135deg,
+            rgba(59, 130, 246, 0.2) 0%,
+            rgba(139, 92, 246, 0.2) 100%);
+    border-color: rgba(59, 130, 246, 0.5);
+    color: #93c5fd;
+    box-shadow: 0 0 12px rgba(59, 130, 246, 0.25);
+}
+
+.magnet-status {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.magnet-status.on {
+    background: rgba(34, 197, 94, 0.2);
+    color: #22c55e;
+}
+
+.magnet-status.off {
+    background: rgba(148, 163, 184, 0.15);
+    color: #64748b;
+}
+
+/* Snap indicator animation */
+@keyframes snapPulse {
+
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    }
+
+    50% {
+        box-shadow: 0 0 15px 5px rgba(59, 130, 246, 0.4);
+    }
+}
+
+.snap-indicator {
+    animation: snapPulse 0.3s ease-out;
+}
