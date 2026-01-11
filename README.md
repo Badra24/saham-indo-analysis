@@ -21,21 +21,21 @@ The project follows a modern decoupled architecture:
 
 ```mermaid
 graph TD
-    User[User / Trader] --> Frontend[Frontend (React + Vite)]
-    Frontend --> |REST API| Backend[Backend (FastAPI)]
+    User["User / Trader"] --> Frontend["Frontend (React + Vite)"]
+    Frontend --> |REST API| Backend["Backend (FastAPI)"]
     
     subgraph "Backend Services"
-        Backend --> AlphaV[Alpha-V Scoring Engine]
-        Backend --> Bandar[Bandarmology Engine]
-        Backend --> ML[ML Engine (Isolation Forest)]
-        Backend --> ADK[ADK AI Agent]
+        Backend --> AlphaV["Alpha-V Scoring Engine"]
+        Backend --> Bandar["Bandarmology Engine"]
+        Backend --> ML["ML Engine (Isolation Forest)"]
+        Backend --> ADK["ADK AI Agent"]
     end
     
     subgraph "Data Sources"
-        PDF[PDF Parser] --> AlphaV
-        CSV[Writer/CSV Parser] --> Bandar
-        OCR[Tesseract OCR] --> Bandar
-        YF[YFinance Live Data] --> Backend
+        PDF["PDF Parser"] --> AlphaV
+        CSV["Writer/CSV Parser"] --> Bandar
+        OCR["Tesseract OCR"] --> Bandar
+        YF["YFinance Live Data"] --> Backend
     end
 ```
 
