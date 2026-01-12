@@ -1,8 +1,14 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Body
 from app.services.analytics_service import analytics_service
+from app.services.database_service import db_service
+
 from typing import Dict, List, Optional
+from pydantic import BaseModel
+from datetime import date
 
 router = APIRouter()
+
+
 
 @router.get("/trend/{ticker}", response_model=List[Dict])
 async def get_broker_trend(ticker: str, days: int = Query(30, ge=5, le=365)):
@@ -25,3 +31,5 @@ async def get_broker_heatmap(ticker: str, days: int = Query(30, ge=5, le=365)):
         return analytics_service.get_broker_heatmap(ticker, days)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+

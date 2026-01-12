@@ -331,27 +331,7 @@ def _get_full_analysis_data_sync(symbol: str) -> Dict[str, Any]:
                 "error": str(av_err)
             }
             
-        # ========================================
-        # PHASE 7: ML ENGINE ANALYSIS (REAL ENGINE)
-        # ========================================
-        try:
-            from app.services.ml_engine import ml_engine
-            
-            ml_result = ml_engine.analyze_latest_anomaly(hist)
-            
-            phase_7_ml = {
-                "anomaly_detected": ml_result.get('is_anomaly', False),
-                "anomaly_score": ml_result.get('score', 0),
-                "description": ml_result.get('description', 'Normal'),
-                "engine": "Isolation Forest (Scikit-Learn)"
-            }
-        except Exception as ml_err:
-            print(f"Error in ML Engine: {ml_err}")
-            phase_7_ml = {
-                "anomaly_detected": False,
-                "description": f"Error: {str(ml_err)}",
-                "engine": "Failed"
-            }
+
         
         # ========================================
         # COMPILE RESULT
@@ -368,7 +348,7 @@ def _get_full_analysis_data_sync(symbol: str) -> Dict[str, Any]:
             "phase_4_strategy": phase_4_strategy,
             "phase_5_risk": phase_5_risk,
             "phase_6_alphav": phase_6_alphav,
-            "phase_7_ml": phase_7_ml,
+
             
             "summary": {
                 "trend_bias": "BULLISH" if phase_1_orderflow['obi'] > 0.2 else ("BEARISH" if phase_1_orderflow['obi'] < -0.2 else "NEUTRAL"),
@@ -378,7 +358,7 @@ def _get_full_analysis_data_sync(symbol: str) -> Dict[str, Any]:
                 "kill_switch": phase_5_risk['kill_switch_active'],
                 "alpha_v_score": phase_6_alphav['total_score'],
                 "alpha_v_grade": phase_6_alphav['grade'],
-                "ml_anomaly": phase_7_ml['anomaly_detected']
+
             }
         }
         

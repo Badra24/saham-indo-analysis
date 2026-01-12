@@ -17,16 +17,43 @@ class DatabaseService:
         # Lazy initialization - Do NOT connect in __init__
         # This prevents lock issues during import/worker spawn
         
-    def get_connection(self):
-        if self._conn is None:
-            # Connect only when needed
+    def get_connection(self, read_only=False):
+        # 1. Reuse existing connection if available
+        # This prevents "Conflicting lock" if we try to open a 2nd connection in the same process
+        if self._conn is not None:
+             return self._conn
+
+        # 2. Connect (with Retry Logic for Restarts)
+        import time
+        max_retries = 3
+        retry_delay = 0.5
+        
+        for attempt in range(max_retries):
             try:
-                self._conn = duckdb.connect(self.DB_PATH)
-                # Ensure schema exists on first connection attempt
+                # Try opening normally (Read/Write)
+                self._conn = duckdb.connect(self.DB_PATH, read_only=False)
                 self.init_db() 
+                return self._conn
             except Exception as e:
-                print(f"❌ DB Connection Error: {e}")
-                raise e
+                if "Conflicting lock" in str(e):
+                    if attempt < max_retries - 1:
+                        print(f"⚠️ Main DB locked, retrying in {retry_delay}s... (Attempt {attempt+1}/{max_retries})")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                        continue
+                    else:
+                        # Final attempt failed - Fallback to Read Only
+                        print(f"⚠️ Main DB locked after retries. Falling back to READ_ONLY connection: {e}")
+                        try:
+                            self._conn = duckdb.connect(self.DB_PATH, read_only=True)
+                            print("✅ READ_ONLY connection established.")
+                            return self._conn
+                        except Exception as e2:
+                             print(f"❌ DB Connection Critical Failure: {e2}")
+                             raise e2 # Cannot recover
+                else:
+                    raise e
+                    
         return self._conn
         
     def close(self):
@@ -196,7 +223,7 @@ class DatabaseService:
 
     def get_history(self, ticker: str, days: int = 30) -> List[Dict]:
         """Get historical stats for charts"""
-        conn = self.get_connection()
+        conn = self.get_connection(read_only=True)
         query = """
             SELECT date, status, bcr, institutional_net_flow, retail_net_flow, foreign_net_flow, top1_buyer, top1_seller
             FROM bandarmology_daily_stats
@@ -226,7 +253,7 @@ class DatabaseService:
         Try to retrieve full broker summary from DB for a specific date.
         Used to optimize API calls.
         """
-        conn = self.get_connection()
+        conn = self.get_connection(read_only=True)
         
         # 1. Get Daily Stats
         stats_query = """
@@ -378,7 +405,7 @@ class DatabaseService:
         """
         Get latest financial report for a ticker.
         """
-        conn = self.get_connection()
+        conn = self.get_connection(read_only=True)
         
         # Check if table exists first (migration safety)
         try:

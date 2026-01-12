@@ -1,0 +1,10 @@
+{
+  "daily_count": 5,
+  "monthly_count": 5,
+  "last_daily_reset": "2026-01-13",
+  "last_monthly_reset": "2026-01-01",
+  "cached_tickers": {
+    "BBCA": "2026-01-13T02:23:15.363271",
+    "PWON": "2026-01-13T02:30:03.256289"
+  }
+}

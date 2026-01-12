@@ -36,8 +36,7 @@ from app.models.file_models import (
     FileType, BrokerSummaryData, FinancialReportData, 
     AlphaVScore, FileUploadResponse
 )
-from app.services.ml_engine import ml_engine # New: ML Engine
-from app.models.schemas import MLAnalysisData # New: ML Schema
+
 import yfinance as yf
 import pandas as pd
 import json
@@ -680,15 +679,14 @@ async def get_indicators(ticker: str, period: str = "1y"):
                 "fib_100": float(last_row.get('Fib_100', 0)),
             }
         
-        # ML Engine Analysis
-        ml_result = ml_engine.analyze_latest_anomaly(hist)
+
         
         result = {
             "ticker": formatted_ticker,
             "timestamp": int(time.time()),
             "historical_prices": candles,
             "indicator_lines": indicator_lines,
-            "ml_analysis": ml_result, # New: Pass ML result
+
             **indicator_signals
         }
         
@@ -1649,34 +1647,4 @@ async def run_swarm_analysis(ticker: str):
     
     return mission_report
 
-@router.get("/ml/forecast/{ticker}")
-async def get_price_forecast(ticker: str):
-    """
-    Get Next-Day Price Probability Forecast (Phase 18 ML).
-    Uses 'Trend Probability Model' (RandomForest Logic).
-    """
-    from app.services.ml_engine import ml_engine
-    
-    # Needs AlphaV and Bandar context
-    # In real app, we fetch from DB. Here we fetch live.
-    context = await get_conviction_analysis(ticker)
-    
-    alpha_v_score = 50
-    if context.get('alpha_v'):
-        alpha_v_score = context['alpha_v'].get('score', 50)
-        
-    bcr = 1.0
-    if context.get('broker_summary'):
-        bcr = context['broker_summary'].get('concentration_ratio', 1.0)
-        
-    features = {
-        "alpha_v_score": alpha_v_score,
-        "bcr": bcr,
-        "foreign_flow": 0 # Not implemented yet
-    }
-    
-    prediction = ml_engine.predict_next_day_trend(features)
-    return {
-        "ticker": ticker,
-        "forecast": prediction
-    }
+

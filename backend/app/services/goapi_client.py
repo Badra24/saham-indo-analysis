@@ -60,37 +60,9 @@ STATUS_LEVELS = {
 }
 
 
-# ==================== DEMO DATA (Fallback) ====================
+# DEMO DATA REMOVED PER USER STRICT REQUIREMENT
+# NO MOCK INTERVENTION
 
-DEMO_BROKER_SUMMARY = {
-    "status": "ACCUMULATION",
-    "signal_strength": 1,
-    "top_buyers": [
-        {"code": "AK", "name": "UBS Sekuritas", "type": "INSTITUTION", "value": 50000000000, "is_foreign": True},
-        {"code": "ZP", "name": "Maybank", "type": "INSTITUTION", "value": 40000000000, "is_foreign": False},
-        {"code": "CC", "name": "Mandiri", "type": "MIXED", "value": 30000000000, "is_foreign": False},
-        {"code": "YP", "name": "Mirae Asset", "type": "RETAIL", "value": 20000000000, "is_foreign": False},
-        {"code": "XL", "name": "Stockbit", "type": "RETAIL", "value": 10000000000, "is_foreign": False},
-    ],
-    "top_sellers": [
-        {"code": "YP", "name": "Mirae Asset", "type": "RETAIL", "value": 35000000000, "is_foreign": False},
-        {"code": "XL", "name": "Stockbit", "type": "RETAIL", "value": 30000000000, "is_foreign": False},
-        {"code": "PD", "name": "Indo Premier", "type": "RETAIL", "value": 25000000000, "is_foreign": False},
-        {"code": "NI", "name": "BNI Sekuritas", "type": "MIXED", "value": 15000000000, "is_foreign": False},
-        {"code": "XC", "name": "Ajaib", "type": "RETAIL", "value": 10000000000, "is_foreign": False},
-    ],
-    "concentration_ratio": 42.5,
-    "dominant_player": "INSTITUTION",
-    "institutional_net_flow": 50000000000,
-    "retail_net_flow": -45000000000,
-    "foreign_net_flow": 30000000000,
-    "buy_value": 150000000000,
-    "sell_value": 120000000000,
-    "net_flow": 30000000000,
-    "churn_detected": False,
-    "churning_brokers": [],
-    "is_demo": True
-}
 
 
 class GoAPIClient:
@@ -197,9 +169,19 @@ class GoAPIClient:
         if result.get("status") == "success" and result.get("data"):
             return self._parse_broker_summary(result, symbol)
         
-        # Fallback to demo data
-        print(f"GoAPI unavailable for {symbol}, using demo data")
-        return {**DEMO_BROKER_SUMMARY, "symbol": symbol}
+        # NO DEMO DATA - Return Error State
+        print(f"GoAPI unavailable for {symbol}, failed to fetch real data")
+        return {
+            "symbol": symbol,
+            "status": "DATA_UNAVAILABLE",
+            "top_buyers": [],
+            "top_sellers": [],
+            "net_flow": 0,
+            "buy_value": 0,
+            "sell_value": 0,
+            "source": "error",
+            "is_demo": False
+        }
     
     def _parse_broker_summary(self, raw_data: Dict, symbol: str) -> Dict:
         """
@@ -215,7 +197,17 @@ class GoAPIClient:
         results = raw_data.get("data", {}).get("results", [])
         
         if not results:
-            return {**DEMO_BROKER_SUMMARY, "symbol": symbol, "is_demo": True}
+             return {
+                "symbol": symbol,
+                "status": "DATA_UNAVAILABLE",
+                "top_buyers": [],
+                "top_sellers": [],
+                "net_flow": 0,
+                "buy_value": 0,
+                "sell_value": 0,
+                "source": "empty",
+                "is_demo": False
+             }
         
         # ==================== SEPARATE BUYS AND SELLS ====================
         buys = [r for r in results if r.get("side") == "BUY"]

@@ -3,6 +3,8 @@ import { Users, TrendingUp, TrendingDown, Minus, Building2, ArrowUpRight, ArrowD
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import BrokerDetailModal from './BrokerDetailModal';
 import FileUploadPanel from './FileUploadPanel';
+import ADKChatPanel from './ADKChatPanel';
+import ConvictionPanel from './ConvictionPanel';
 import { API_BASE_URL } from '../config';
 
 // Loading Skeleton Component
@@ -60,11 +62,33 @@ function BrokerSummaryPanel({ data, ticker, isLoading, onDataUpdate }) {
     const [internalLoading, setInternalLoading] = useState(false);
     const [showUpload, setShowUpload] = useState(false);
     const [isScraping, setIsScraping] = useState(false);
+    const [showChat, setShowChat] = useState(false);
     const fileInputRef = useRef(null);
 
     const handleFileUpload = async (event) => {
         const file = event.target.files[0];
         if (!file) return;
+
+        // Validation: Warn if filename doesn't contain the current ticker
+        // This prevents uploading wrong stock data (e.g. PWON file for BBCA view)
+        const fileName = file.name.toUpperCase();
+        const currentTicker = ticker ? ticker.toUpperCase() : "";
+
+        // STRICT VALIDATION: Reject if filename doesn't contain the current ticker
+        // Best Practice: Enforce naming convention to prevent cross-contamination of data.
+
+        if (currentTicker && !fileName.includes(currentTicker)) {
+            alert(
+                `⛔ Upload Rejected\n\n` +
+                `System Security: The file "${file.name}" does NOT match the current ticker "${currentTicker}".\n\n` +
+                `To verify data integrity, the filename MUST contain the ticker name.\n` +
+                `Please rename your file to include "${currentTicker}" (e.g., "${currentTicker}_BrokerSummary.csv").`
+            );
+
+            // Clear input
+            if (event.target) event.target.value = '';
+            return;
+        }
 
         const formData = new FormData();
         formData.append('file', file);
@@ -305,6 +329,68 @@ function BrokerSummaryPanel({ data, ticker, isLoading, onDataUpdate }) {
         return configs[status] || configs['NEUTRAL'];
     };
 
+    // Trading Conviction Logic (Based on Thesis Rules)
+    const getConvictionAnalysis = (data) => {
+        if (!data) return { score: 0, label: 'N/A', color: 'text-gray-500', bg: 'bg-gray-500/10' };
+
+        let score = 50;
+        const reasons = [];
+
+        // 1. Bandarmology Signal (Weight: 40%)
+        const status = data.status || 'NEUTRAL';
+        if (['BIG_ACCUMULATION', 'ACCUMULATION'].includes(status)) {
+            score += 20;
+            reasons.push("Accumulation Detected (+20)");
+        } else if (['BIG_DISTRIBUTION', 'DISTRIBUTION'].includes(status)) {
+            score -= 20;
+            reasons.push("Distribution Detected (-20)");
+        }
+
+        // 2. Foreign Flow (Weight: 20%)
+        if ((data.foreign_net_flow || 0) > 1000000000) { // > 1B
+            score += 10;
+            reasons.push("Strong Foreign Inflow (+10)");
+        } else if ((data.foreign_net_flow || 0) < -1000000000) {
+            score -= 10;
+            reasons.push("Strong Foreign Outflow (-10)");
+        }
+
+        // 3. Concentration Ratio (Weight: 20%)
+        if ((data.concentration_ratio || 0) > 40) {
+            score += 10;
+            reasons.push("High Broker Concentration (+10)");
+        }
+
+        // Cap Score
+        score = Math.max(0, Math.min(100, score));
+
+        // Determine Label
+        let label = 'NEUTRAL';
+        let color = 'text-gray-400';
+        let bg = 'bg-gray-500/10';
+
+        if (score >= 75) {
+            label = 'STRONG BUY';
+            color = 'text-green-400';
+            bg = 'bg-green-500/20';
+        } else if (score >= 60) {
+            label = 'MODERATE BUY';
+            color = 'text-green-300';
+            bg = 'bg-green-500/15';
+        } else if (score <= 25) {
+            label = 'STRONG SELL';
+            color = 'text-red-400';
+            bg = 'bg-red-500/20';
+        } else if (score <= 40) {
+            label = 'MODERATE SELL';
+            color = 'text-red-300';
+            bg = 'bg-red-500/15';
+        }
+
+        return { score, label, color, bg, reasons };
+    };
+
+    const conviction = getConvictionAnalysis(displayData);
     const statusConfig = getStatusConfig(displayData.status);
 
     // Format helpers are defined outside the component
@@ -457,8 +543,24 @@ function BrokerSummaryPanel({ data, ticker, isLoading, onDataUpdate }) {
                                 Hari Ini
                             </button>
                         )}
+
+                        {/* AI Chat Toggle Removed - Integrated into ConvictionPanel */}
                     </div>
                 </div>
+
+
+
+                {/* AI Chat Overlay */}
+                {
+                    showChat && (
+                        <div className="border-t border-white/10 p-3 bg-gray-900/50">
+                            <ADKChatPanel
+                                symbol={ticker || 'IHSG'}
+                                onStatusChange={(status) => console.log('AI Status:', status)}
+                            />
+                        </div>
+                    )
+                }
 
                 {/* MAIN VIEW TABS */}
                 <div className="flex space-x-1 mb-3 bg-white/5 p-1 rounded-lg">
@@ -480,223 +582,225 @@ function BrokerSummaryPanel({ data, ticker, isLoading, onDataUpdate }) {
                 </div>
 
                 {/* VIEW: SUMMARY (Everything below is wrapped) */}
-                {activeView === 'summary' && (
-                    <>
-                        {/* Inner Tabs for Summary */}
-                        <div className="flex border-b border-white/10">
-                            {[
-                                { id: 'summary', label: 'Summary' },
-                                { id: 'buyers', label: 'Top Buyers' },
-                                { id: 'sellers', label: 'Top Sellers' }
-                            ].map(tab => (
-                                <button
-                                    key={tab.id}
-                                    onClick={() => setActiveTab(tab.id)}
-                                    className={`flex-1 py-2 text-xs font-medium transition-colors ${activeTab === tab.id
-                                        ? 'text-brand-accent border-b-2 border-brand-accent'
-                                        : 'text-gray-500 hover:text-gray-300'
-                                        }`}
-                                >
-                                    {tab.label}
-                                </button>
-                            ))}
-                        </div>
+                {
+                    activeView === 'summary' && (
+                        <>
+                            {/* Inner Tabs for Summary */}
+                            <div className="flex border-b border-white/10">
+                                {[
+                                    { id: 'summary', label: 'Summary' },
+                                    { id: 'buyers', label: 'Top Buyers' },
+                                    { id: 'sellers', label: 'Top Sellers' }
+                                ].map(tab => (
+                                    <button
+                                        key={tab.id}
+                                        onClick={() => setActiveTab(tab.id)}
+                                        className={`flex-1 py-2 text-xs font-medium transition-colors ${activeTab === tab.id
+                                            ? 'text-brand-accent border-b-2 border-brand-accent'
+                                            : 'text-gray-500 hover:text-gray-300'
+                                            }`}
+                                    >
+                                        {tab.label}
+                                    </button>
+                                ))}
+                            </div>
 
-                        {/* Content */}
-                        <div className="p-3">
-                            {activeTab === 'summary' && (
-                                <div className="space-y-4">
-                                    {/* Net Flow Summary */}
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="bg-green-500/10 rounded-lg p-3 border border-green-500/20">
-                                            <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
-                                                <ArrowUpRight size={12} className="text-green-400" />
-                                                Total Buy
-                                            </div>
-                                            <div className="text-lg font-bold text-green-400">{formatValue(displayData.buy_value)}</div>
-                                        </div>
-                                        <div className="bg-red-500/10 rounded-lg p-3 border border-red-500/20">
-                                            <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
-                                                <ArrowDownRight size={12} className="text-red-400" />
-                                                Total Sell
-                                            </div>
-                                            <div className="text-lg font-bold text-red-400">{formatValue(displayData.sell_value)}</div>
-                                        </div>
-                                    </div>
-
-                                    {/* Net Flow */}
-                                    <div className={`rounded-lg p-3 ${displayData.net_flow >= 0 ? 'bg-green-500/10 border-green-500/20' : 'bg-red-500/10 border-red-500/20'} border`}>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-xs text-gray-400">Net Flow</span>
-                                            <span className={`text-lg font-bold ${displayData.net_flow >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                                {displayData.net_flow >= 0 ? '+' : ''}{formatValue(displayData.net_flow)}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    {/* Flow Breakdown */}
-                                    <div className="space-y-2">
-                                        <div className="text-xs text-gray-400 mb-2">Flow by Type</div>
-
-                                        {/* Institutional */}
-                                        <div className="flex items-center justify-between py-1.5 border-b border-white/5">
-                                            <span className="text-xs flex items-center gap-2">
-                                                <span className="text-green-400">🏦</span> Institutional
-                                            </span>
-                                            <span className={`text-sm font-mono ${(displayData.institutional_net_flow || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                                {(displayData.institutional_net_flow || 0) >= 0 ? '+' : ''}{formatValue(displayData.institutional_net_flow || 0)}
-                                            </span>
-                                        </div>
-
-                                        {/* Retail */}
-                                        <div className="flex items-center justify-between py-1.5 border-b border-white/5">
-                                            <span className="text-xs flex items-center gap-2">
-                                                <span className="text-blue-400">👤</span> Retail
-                                            </span>
-                                            <span className={`text-sm font-mono ${(displayData.retail_net_flow || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                                {(displayData.retail_net_flow || 0) >= 0 ? '+' : ''}{formatValue(displayData.retail_net_flow || 0)}
-                                            </span>
-                                        </div>
-
-                                        {/* Foreign */}
-                                        <div className="flex items-center justify-between py-1.5">
-                                            <span className="text-xs flex items-center gap-2">
-                                                <span className="text-yellow-400">🌐</span> Foreign
-                                            </span>
-                                            <span className={`text-sm font-mono ${(displayData.foreign_net_flow || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                                {(displayData.foreign_net_flow || 0) >= 0 ? '+' : ''}{formatValue(displayData.foreign_net_flow || 0)}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    {/* Concentration */}
-                                    <div>
-                                        <div className="flex justify-between items-center mb-2">
-                                            <span className="text-xs text-gray-400">Top 5 Concentration</span>
-                                            <span className="text-sm font-semibold">{displayData.concentration_ratio?.toFixed(1) || 0}%</span>
-                                        </div>
-                                        <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-                                            <div
-                                                className={`h-full transition-all duration-500 ${displayData.concentration_ratio > 50 ? 'bg-brand-accent' :
-                                                    displayData.concentration_ratio > 30 ? 'bg-yellow-500' : 'bg-gray-500'
-                                                    }`}
-                                                style={{ width: `${displayData.concentration_ratio || 0}%` }}
-                                            />
-                                        </div>
-                                        <div className="text-[10px] text-gray-500 mt-1">
-                                            {displayData.concentration_ratio > 50 ? 'High concentration - Institutional activity' :
-                                                displayData.concentration_ratio > 30 ? 'Moderate concentration' : 'Low concentration - Mixed activity'}
-                                        </div>
-                                    </div>
-
-                                    {/* Phase 18: Graph Analysis (Broker Clusters) */}
-                                    {displayData.graph_analysis && (
-                                        <div className="mt-4 pt-3 border-t border-white/10">
-                                            <div className="flex items-center gap-2 mb-2">
-                                                <div className="p-1 bg-purple-500/20 rounded">
-                                                    <TrendingUp size={12} className="text-purple-400" />
+                            {/* Content */}
+                            <div className="p-3">
+                                {activeTab === 'summary' && (
+                                    <div className="space-y-4">
+                                        {/* Net Flow Summary */}
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="bg-green-500/10 rounded-lg p-3 border border-green-500/20">
+                                                <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
+                                                    <ArrowUpRight size={12} className="text-green-400" />
+                                                    Total Buy
                                                 </div>
-                                                <span className="text-xs font-semibold text-purple-300">Graph Forensics</span>
+                                                <div className="text-lg font-bold text-green-400">{formatValue(displayData.buy_value)}</div>
+                                            </div>
+                                            <div className="bg-red-500/10 rounded-lg p-3 border border-red-500/20">
+                                                <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
+                                                    <ArrowDownRight size={12} className="text-red-400" />
+                                                    Total Sell
+                                                </div>
+                                                <div className="text-lg font-bold text-red-400">{formatValue(displayData.sell_value)}</div>
+                                            </div>
+                                        </div>
+
+                                        {/* Net Flow */}
+                                        <div className={`rounded-lg p-3 ${displayData.net_flow >= 0 ? 'bg-green-500/10 border-green-500/20' : 'bg-red-500/10 border-red-500/20'} border`}>
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-xs text-gray-400">Net Flow</span>
+                                                <span className={`text-lg font-bold ${displayData.net_flow >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                                    {displayData.net_flow >= 0 ? '+' : ''}{formatValue(displayData.net_flow)}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Flow Breakdown */}
+                                        <div className="space-y-2">
+                                            <div className="text-xs text-gray-400 mb-2">Flow by Type</div>
+
+                                            {/* Institutional */}
+                                            <div className="flex items-center justify-between py-1.5 border-b border-white/5">
+                                                <span className="text-xs flex items-center gap-2">
+                                                    <span className="text-green-400">🏦</span> Institutional
+                                                </span>
+                                                <span className={`text-sm font-mono ${(displayData.institutional_net_flow || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                                    {(displayData.institutional_net_flow || 0) >= 0 ? '+' : ''}{formatValue(displayData.institutional_net_flow || 0)}
+                                                </span>
                                             </div>
 
-                                            <div className="grid grid-cols-2 gap-2 text-xs">
-                                                <div className="bg-white/5 p-2 rounded border border-white/5">
-                                                    <div className="text-gray-500 mb-1">Central Player</div>
-                                                    <div className="font-mono text-white font-bold">
-                                                        {displayData.graph_analysis.central_broker || "None"}
+                                            {/* Retail */}
+                                            <div className="flex items-center justify-between py-1.5 border-b border-white/5">
+                                                <span className="text-xs flex items-center gap-2">
+                                                    <span className="text-blue-400">👤</span> Retail
+                                                </span>
+                                                <span className={`text-sm font-mono ${(displayData.retail_net_flow || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                                    {(displayData.retail_net_flow || 0) >= 0 ? '+' : ''}{formatValue(displayData.retail_net_flow || 0)}
+                                                </span>
+                                            </div>
+
+                                            {/* Foreign */}
+                                            <div className="flex items-center justify-between py-1.5">
+                                                <span className="text-xs flex items-center gap-2">
+                                                    <span className="text-yellow-400">🌐</span> Foreign
+                                                </span>
+                                                <span className={`text-sm font-mono ${(displayData.foreign_net_flow || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                                    {(displayData.foreign_net_flow || 0) >= 0 ? '+' : ''}{formatValue(displayData.foreign_net_flow || 0)}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Concentration */}
+                                        <div>
+                                            <div className="flex justify-between items-center mb-2">
+                                                <span className="text-xs text-gray-400">Top 5 Concentration</span>
+                                                <span className="text-sm font-semibold">{displayData.concentration_ratio?.toFixed(1) || 0}%</span>
+                                            </div>
+                                            <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                                                <div
+                                                    className={`h-full transition-all duration-500 ${displayData.concentration_ratio > 50 ? 'bg-brand-accent' :
+                                                        displayData.concentration_ratio > 30 ? 'bg-yellow-500' : 'bg-gray-500'
+                                                        }`}
+                                                    style={{ width: `${displayData.concentration_ratio || 0}%` }}
+                                                />
+                                            </div>
+                                            <div className="text-[10px] text-gray-500 mt-1">
+                                                {displayData.concentration_ratio > 50 ? 'High concentration - Institutional activity' :
+                                                    displayData.concentration_ratio > 30 ? 'Moderate concentration' : 'Low concentration - Mixed activity'}
+                                            </div>
+                                        </div>
+
+                                        {/* Phase 18: Graph Analysis (Broker Clusters) */}
+                                        {displayData.graph_analysis && (
+                                            <div className="mt-4 pt-3 border-t border-white/10">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <div className="p-1 bg-purple-500/20 rounded">
+                                                        <TrendingUp size={12} className="text-purple-400" />
                                                     </div>
+                                                    <span className="text-xs font-semibold text-purple-300">Graph Forensics</span>
                                                 </div>
-                                                <div className="bg-white/5 p-2 rounded border border-white/5">
-                                                    <div className="text-gray-500 mb-1">Clusters</div>
-                                                    <div className="font-mono text-white">
-                                                        {displayData.graph_analysis.graph_summary ? "Detected" : "None"}
-                                                    </div>
-                                                </div>
-                                            </div>
 
-                                            {/* Suspicious Flows */}
-                                            {displayData.graph_analysis.suspicious_flows?.length > 0 && (
-                                                <div className="mt-2 space-y-1">
-                                                    <div className="text-[10px] text-red-400 font-semibold">⚠️ Suspicious Flows (Possible Wash Trading)</div>
-                                                    {displayData.graph_analysis.suspicious_flows.slice(0, 3).map((flow, i) => (
-                                                        <div key={i} className="flex justify-between text-[10px] bg-red-500/10 px-2 py-1 rounded border border-red-500/10">
-                                                            <span className="text-red-300">{flow.from} ➔ {flow.to}</span>
-                                                            <span className="text-gray-400">{formatValue(flow.value)}</span>
+                                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                                    <div className="bg-white/5 p-2 rounded border border-white/5">
+                                                        <div className="text-gray-500 mb-1">Central Player</div>
+                                                        <div className="font-mono text-white font-bold">
+                                                            {displayData.graph_analysis.central_broker || "None"}
                                                         </div>
-                                                    ))}
+                                                    </div>
+                                                    <div className="bg-white/5 p-2 rounded border border-white/5">
+                                                        <div className="text-gray-500 mb-1">Clusters</div>
+                                                        <div className="font-mono text-white">
+                                                            {displayData.graph_analysis.graph_summary ? "Detected" : "None"}
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                            )}
+
+                                                {/* Suspicious Flows */}
+                                                {displayData.graph_analysis.suspicious_flows?.length > 0 && (
+                                                    <div className="mt-2 space-y-1">
+                                                        <div className="text-[10px] text-red-400 font-semibold">⚠️ Suspicious Flows (Possible Wash Trading)</div>
+                                                        {displayData.graph_analysis.suspicious_flows.slice(0, 3).map((flow, i) => (
+                                                            <div key={i} className="flex justify-between text-[10px] bg-red-500/10 px-2 py-1 rounded border border-red-500/10">
+                                                                <span className="text-red-300">{flow.from} ➔ {flow.to}</span>
+                                                                <span className="text-gray-400">{formatValue(flow.value)}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {activeTab === 'buyers' && (
+                                    <div className="space-y-1">
+                                        <div className="text-xs text-gray-500 flex items-center justify-between px-2 py-1 border-b border-white/5">
+                                            <span>#</span>
+                                            <span className="flex-1 ml-4">Broker</span>
+                                            <span>Value</span>
                                         </div>
-                                    )}
-                                </div>
-                            )}
+                                        {/* Grouped Buyers */}
+                                        {/* Foreign */}
+                                        <div className="mb-2">
+                                            <div className="text-[10px] font-semibold text-yellow-500 bg-yellow-500/10 px-2 py-0.5 mb-1">Foreign</div>
+                                            {displayData.top_buyers?.filter(b => b.is_foreign).map((broker, idx) => (
+                                                <BrokerRow key={`f-${idx}`} broker={broker} side="BUY" rank={idx + 1} />
+                                            ))}
+                                        </div>
+                                        {/* Domestic Inst */}
+                                        <div className="mb-2">
+                                            <div className="text-[10px] font-semibold text-green-500 bg-green-500/10 px-2 py-0.5 mb-1">Domestic Institution</div>
+                                            {displayData.top_buyers?.filter(b => !b.is_foreign && b.type === 'INSTITUTION').map((broker, idx) => (
+                                                <BrokerRow key={`i-${idx}`} broker={broker} side="BUY" rank={idx + 1} />
+                                            ))}
+                                        </div>
+                                        {/* Retail */}
+                                        <div>
+                                            <div className="text-[10px] font-semibold text-blue-500 bg-blue-500/10 px-2 py-0.5 mb-1">Retail & Others</div>
+                                            {displayData.top_buyers?.filter(b => !b.is_foreign && b.type !== 'INSTITUTION').map((broker, idx) => (
+                                                <BrokerRow key={`r-${idx}`} broker={broker} side="BUY" rank={idx + 1} />
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
 
-                            {activeTab === 'buyers' && (
-                                <div className="space-y-1">
-                                    <div className="text-xs text-gray-500 flex items-center justify-between px-2 py-1 border-b border-white/5">
-                                        <span>#</span>
-                                        <span className="flex-1 ml-4">Broker</span>
-                                        <span>Value</span>
+                                {activeTab === 'sellers' && (
+                                    <div className="space-y-1">
+                                        <div className="text-xs text-gray-500 flex items-center justify-between px-2 py-1 border-b border-white/5">
+                                            <span>#</span>
+                                            <span className="flex-1 ml-4">Broker</span>
+                                            <span>Value</span>
+                                        </div>
+                                        {/* Grouped Sellers */}
+                                        {/* Foreign */}
+                                        <div className="mb-2">
+                                            <div className="text-[10px] font-semibold text-yellow-500 bg-yellow-500/10 px-2 py-0.5 mb-1">Foreign</div>
+                                            {displayData.top_sellers?.filter(b => b.is_foreign).map((broker, idx) => (
+                                                <BrokerRow key={`f-${idx}`} broker={broker} side="SELL" rank={idx + 1} />
+                                            ))}
+                                        </div>
+                                        {/* Domestic Inst */}
+                                        <div className="mb-2">
+                                            <div className="text-[10px] font-semibold text-green-500 bg-green-500/10 px-2 py-0.5 mb-1">Domestic Institution</div>
+                                            {displayData.top_sellers?.filter(b => !b.is_foreign && b.type === 'INSTITUTION').map((broker, idx) => (
+                                                <BrokerRow key={`i-${idx}`} broker={broker} side="SELL" rank={idx + 1} />
+                                            ))}
+                                        </div>
+                                        {/* Retail */}
+                                        <div>
+                                            <div className="text-[10px] font-semibold text-blue-500 bg-blue-500/10 px-2 py-0.5 mb-1">Retail & Others</div>
+                                            {displayData.top_sellers?.filter(b => !b.is_foreign && b.type !== 'INSTITUTION').map((broker, idx) => (
+                                                <BrokerRow key={`r-${idx}`} broker={broker} side="SELL" rank={idx + 1} />
+                                            ))}
+                                        </div>
                                     </div>
-                                    {/* Grouped Buyers */}
-                                    {/* Foreign */}
-                                    <div className="mb-2">
-                                        <div className="text-[10px] font-semibold text-yellow-500 bg-yellow-500/10 px-2 py-0.5 mb-1">Foreign</div>
-                                        {displayData.top_buyers?.filter(b => b.is_foreign).map((broker, idx) => (
-                                            <BrokerRow key={`f-${idx}`} broker={broker} side="BUY" rank={idx + 1} />
-                                        ))}
-                                    </div>
-                                    {/* Domestic Inst */}
-                                    <div className="mb-2">
-                                        <div className="text-[10px] font-semibold text-green-500 bg-green-500/10 px-2 py-0.5 mb-1">Domestic Institution</div>
-                                        {displayData.top_buyers?.filter(b => !b.is_foreign && b.type === 'INSTITUTION').map((broker, idx) => (
-                                            <BrokerRow key={`i-${idx}`} broker={broker} side="BUY" rank={idx + 1} />
-                                        ))}
-                                    </div>
-                                    {/* Retail */}
-                                    <div>
-                                        <div className="text-[10px] font-semibold text-blue-500 bg-blue-500/10 px-2 py-0.5 mb-1">Retail & Others</div>
-                                        {displayData.top_buyers?.filter(b => !b.is_foreign && b.type !== 'INSTITUTION').map((broker, idx) => (
-                                            <BrokerRow key={`r-${idx}`} broker={broker} side="BUY" rank={idx + 1} />
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {activeTab === 'sellers' && (
-                                <div className="space-y-1">
-                                    <div className="text-xs text-gray-500 flex items-center justify-between px-2 py-1 border-b border-white/5">
-                                        <span>#</span>
-                                        <span className="flex-1 ml-4">Broker</span>
-                                        <span>Value</span>
-                                    </div>
-                                    {/* Grouped Sellers */}
-                                    {/* Foreign */}
-                                    <div className="mb-2">
-                                        <div className="text-[10px] font-semibold text-yellow-500 bg-yellow-500/10 px-2 py-0.5 mb-1">Foreign</div>
-                                        {displayData.top_sellers?.filter(b => b.is_foreign).map((broker, idx) => (
-                                            <BrokerRow key={`f-${idx}`} broker={broker} side="SELL" rank={idx + 1} />
-                                        ))}
-                                    </div>
-                                    {/* Domestic Inst */}
-                                    <div className="mb-2">
-                                        <div className="text-[10px] font-semibold text-green-500 bg-green-500/10 px-2 py-0.5 mb-1">Domestic Institution</div>
-                                        {displayData.top_sellers?.filter(b => !b.is_foreign && b.type === 'INSTITUTION').map((broker, idx) => (
-                                            <BrokerRow key={`i-${idx}`} broker={broker} side="SELL" rank={idx + 1} />
-                                        ))}
-                                    </div>
-                                    {/* Retail */}
-                                    <div>
-                                        <div className="text-[10px] font-semibold text-blue-500 bg-blue-500/10 px-2 py-0.5 mb-1">Retail & Others</div>
-                                        {displayData.top_sellers?.filter(b => !b.is_foreign && b.type !== 'INSTITUTION').map((broker, idx) => (
-                                            <BrokerRow key={`r-${idx}`} broker={broker} side="SELL" rank={idx + 1} />
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </>
-                )}
+                                )}
+                            </div>
+                        </>
+                    )
+                }
 
 
                 {/* VIEW: TREND */}

@@ -63,6 +63,21 @@ const FileUploadPanel = ({
             return;
         }
 
+        // STRICT VALIDATION: Reject if filename doesn't contain the current ticker
+        const fileName = file.name.toUpperCase();
+        const currentTicker = ticker.toUpperCase();
+
+        if (!fileName.includes(currentTicker)) {
+            setErrorMessage(`Upload Rejected: File must be named with "${currentTicker}"`);
+            setUploadState('error');
+            alert(
+                `⛔ Upload Rejected\n\n` +
+                `System Security: The file "${file.name}" does NOT match the current ticker "${currentTicker}".\n\n` +
+                `Please rename your file to include "${currentTicker}" before uploading.`
+            );
+            return;
+        }
+
         const formData = new FormData();
         formData.append('file', file);
         formData.append('ticker', ticker);

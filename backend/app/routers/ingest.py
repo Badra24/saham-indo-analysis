@@ -77,7 +77,7 @@ async def upload_csv_broker_summary(
             buy_broker = keys.get('Broker (Buy)', '').strip()
             if buy_broker:
                 # Get Info
-                b_info = get_broker_by_code(buy_broker)
+                b_info = get_broker_by_code(buy_broker) or {}
                 
                 # Parse Values
                 b_val = parse_num(keys.get('B.Val', keys.get('B. Val', 0)))
@@ -104,7 +104,7 @@ async def upload_csv_broker_summary(
             sell_broker = keys.get('Broker (Sell)', '').strip()
             if sell_broker:
                 # Get Info
-                s_info = get_broker_by_code(sell_broker)
+                s_info = get_broker_by_code(sell_broker) or {}
                 
                 # Parse Values
                 s_val = parse_num(keys.get('S.Val', keys.get('S. Val', 0)))
@@ -133,16 +133,23 @@ async def upload_csv_broker_summary(
         top3_buy = sum(x['value'] for x in top_buyers[:3])
         top3_sell = sum(x['value'] for x in top_sellers[:3])
         
-        # Simple Logic for Stats
+        # REAL Logic for Stats (Bandarmology)
+        # Calculate dominance of Top 3 players
+        top3_buy_pct = (top3_buy / total_buy_val * 100) if total_buy_val > 0 else 0
+        top3_sell_pct = (top3_sell / total_sell_val * 100) if total_sell_val > 0 else 0
+        
+        # Accumulation: Big players buying more than selling, AND they dominate the buy side
         if top3_buy > top3_sell * 1.1:
             status = "ACCUMULATION"
-            conc_ratio = 60.0 # Mock high
+            if top3_buy > top3_sell * 1.5: status = "BIG_ACCUMULATION"
+            conc_ratio = top3_buy_pct
         elif top3_sell > top3_buy * 1.1:
             status = "DISTRIBUTION"
-            conc_ratio = 20.0 # Mock low
+            if top3_sell > top3_buy * 1.5: status = "BIG_DISTRIBUTION"
+            conc_ratio = top3_sell_pct
         else:
             status = "NEUTRAL"
-            conc_ratio = 40.0
+            conc_ratio = (top3_buy_pct + top3_sell_pct) / 2 # Average dominance
             
         data = {
             "status": status,

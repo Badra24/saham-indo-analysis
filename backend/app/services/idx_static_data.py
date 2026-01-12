@@ -22,7 +22,7 @@ from functools import lru_cache
 import re
 
 # Path to idx-bei data directory
-IDX_DATA_DIR = Path(__file__).parent.parent.parent.parent / "idx-bei" / "data"
+IDX_DATA_DIR = Path(__file__).parent.parent.parent.parent / "broker" / "data"
 
 
 # ==================== DATA LOADING ====================
@@ -332,6 +332,18 @@ def get_broker_by_code(code: str) -> Optional[Dict]:
                 "is_foreign": is_foreign,
                 "source": "idx"
             }
+    
+    # If not found in loaded brokers (or file missing), check hardcoded classification
+    if code in BROKER_CLASSIFICATION:
+        info = BROKER_CLASSIFICATION[code]
+        return {
+            "code": code,
+            "name": info.get("name_short", code),
+            "license": "Unknown",
+            "type": info["type"],
+            "is_foreign": info["is_foreign"],
+            "source": "static_fallback"
+        }
     
     return None
 
