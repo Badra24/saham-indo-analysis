@@ -339,16 +339,60 @@ async def get_bandarmology(ticker: str, date: str = None, force_refresh: bool = 
     - use_browser: Try IDX Browser first (default: True, set False to force GoAPI)
     """
     from app.services.goapi_client import get_broker_summary_hybrid
+    from app.services.database_service import db_service
+    from app.services.mock_data_generator import mock_generator
+    from datetime import date as dt_date, datetime
     
     try:
         formatted_ticker = ticker.upper().replace(".JK", "")
         
-        # Use hybrid approach (IDX Browser -> GoAPI -> Demo)
+        # Determine target date
+        target_date = date if date else dt_date.today().isoformat()
+        
+        # 1. OPTIMIZATION: Check DB First
+        if not force_refresh:
+            db_data = db_service.get_broker_summary_by_date(formatted_ticker, target_date)
+            if db_data:
+                print(f"[OPTIMIZATION] Returning {formatted_ticker} data from DuckDB for {target_date}")
+                db_data["from_cache"] = True
+                db_data["status"] = db_data.get("status", "NEUTRAL") # Ensure keys exist
+                return db_data
+
+        # 2. Use hybrid approach (IDX Browser -> GoAPI -> Demo)
         result = await get_broker_summary_hybrid(
             symbol=formatted_ticker,
             date_str=date,
             use_browser=use_browser
         )
+        
+        # ---------------- INGESTION & FALLBACK LOGIC ----------------
+        # Check if we need to fallback to Mock Data (Rate Limited / Error)
+        if result.get("source") in ["error", "demo"] or result.get("status") == "DATA_UNAVAILABLE":
+            print(f"[FALLBACK] Using Mock Data Generator for {ticker}")
+            # Generate 1 day of mock data
+            mock_days = mock_generator.generate_mock_history(formatted_ticker, days=1)
+            if mock_days:
+                result = mock_days[-1] # Take latest
+                result["graph_analysis"] = {"status": "MOCK_DATA"} # Placeholder
+                
+        # Save to DuckDB for Historical Analysis (SKIP MOCK DATA)
+        # User Requirement: Mock data must NOT pollute the database.
+        data_source = result.get("source", "unknown")
+        if data_source not in ["mock", "demo", "error", "mock_generator"]:
+            try:
+                # Determine date
+                if date:
+                    save_date = date
+                else:
+                    save_date = dt_date.today().isoformat()
+                    
+                db_service.insert_broker_summary(formatted_ticker, str(save_date), result, source=data_source)
+            except Exception as db_e:
+                print(f"⚠️ Failed to save to DuckDB: {db_e}")
+        else:
+            print(f"[SKIP DB] Mock data ({data_source}) not saved to DuckDB to preserve analysis integrity.")
+            
+        # -------------------------------------------------------------
         
         result["from_cache"] = False
         return result
@@ -1126,9 +1170,16 @@ async def upload_financial_report(
         )
         
         if result.success and result.parsed_data:
-            # Cache the parsed data
+            # Cache the parsed data (In-Memory)
             financial_data = FinancialReportData(**result.parsed_data)
             _uploaded_financial_data[ticker.upper()] = financial_data
+            
+            # Persist to DuckDB (Persistent Storage)
+            try:
+                from app.services.database_service import db_service
+                db_service.insert_financial_report(ticker.upper(), result.parsed_data)
+            except Exception as db_err:
+                print(f"Failed to persist financial report to DB: {db_err}")
         
         return result.model_dump()
         
@@ -1212,10 +1263,86 @@ async def get_alpha_v_score_endpoint(
     ticker_upper = ticker.upper()
     cache_key = ticker_upper.replace(".JK", "") # Normalize for cache lookup
     
-    # Get uploaded data if available
+    # Get uploaded data if available (Priority 1)
     broker_data = _uploaded_broker_data.get(cache_key) if use_uploaded_data else None
     financial_data = _uploaded_financial_data.get(cache_key) if use_uploaded_data else None
+
+    # Fallback: Check DuckDB for Broker Summary (Priority 2)
+    if not broker_data:
+        try:
+            from app.services.database_service import db_service
+            from datetime import date
+            from app.models.file_models import BrokerType, BrokerEntry
+            
+            # Fetch from DB (today's data or latest)
+            # For Alpha-V, we usually want the latest available data
+            db_result = db_service.get_broker_summary_by_date(ticker_upper.replace(".JK",""), date.today().isoformat())
+            
+            # If not found for today, maybe try query without date (latest)? 
+            # db_service.get_history returns list. get_broker_summary_by_date needs date.
+            # Let's assume user just uploaded or it's fresh.
+            
+            if db_result:
+                print(f"[Alpha-V] Found persistent data in DuckDB for {ticker_upper}")
+                # Map DB Dict -> BrokerSummaryData Pydantic Model
+                
+                # Map Buyers
+                top_buyers = []
+                for b in db_result.get("top_buyers", []):
+                    top_buyers.append(BrokerEntry(
+                        broker_code=b['code'],
+                        broker_name=b['code'], # Name not stored in summary dict
+                        broker_type=BrokerType.UNKNOWN, # or map from b['type']
+                        buy_value=b['value'],
+                        buy_volume=b['volume'],
+                        is_foreign=b.get('is_foreign', False)
+                    ))
+                    
+                # Map Sellers
+                top_sellers = []
+                for s in db_result.get("top_sellers", []):
+                    top_sellers.append(BrokerEntry(
+                        broker_code=s['code'],
+                        broker_name=s['code'],
+                        broker_type=BrokerType.UNKNOWN,
+                        sell_value=s['value'],
+                        sell_volume=s['volume'],
+                        is_foreign=s.get('is_foreign', False)
+                    ))
+
+                # Safe conversion for Phase and BCR
+                bcr_val = float(db_result.get("concentration_ratio", 0) or 0)
+                # If from DB, source might be 'upload' or 'goapi'
+                
+                broker_data = BrokerSummaryData(
+                    ticker=ticker_upper,
+                    date=date.today().isoformat(), # approximate
+                    source=f"db_{db_result.get('source', 'unknown')}",
+                    top_buyers=top_buyers,
+                    top_sellers=top_sellers,
+                    bcr=bcr_val,
+                    net_foreign_flow=float(db_result.get("foreign_net_flow", 0) or 0),
+                    foreign_flow_pct=0, # Calc if needed
+                    total_buy=float(db_result.get("buy_value", 0) or 0),
+                    total_sell=float(db_result.get("sell_value", 0) or 0),
+                    total_transaction_value=float(db_result.get("buy_value", 0) or 0) + float(db_result.get("sell_value", 0) or 0),
+                    phase=db_result.get("status", "NEUTRAL")
+                )
+        except Exception as e:
+            print(f"[Alpha-V] DB Fallback failed: {e}")
     
+    # Fallback: Check DuckDB for Financial Data (Priority 2)
+    if not financial_data:
+        try:
+            from app.services.database_service import db_service
+            db_fin = db_service.get_financial_report(ticker_upper)
+            
+            if db_fin:
+                print(f"[Alpha-V] Found persistent financial data in DuckDB for {ticker_upper}")
+                financial_data = FinancialReportData(**db_fin)
+        except Exception as e:
+            print(f"[Alpha-V] DB Fallback for Financial Data failed: {e}")
+
     # Defensive check: Ensure financial data actually has metrics
     if financial_data:
         # Check if it's just an empty shell or has real data
@@ -1277,10 +1404,7 @@ async def get_alpha_v_score_endpoint(
                     if financial_data.der is None or financial_data.der == 0:
                         financial_data.der = info.get("debtToEquity", 0)
                         if financial_data.der and financial_data.der > 100: 
-                             # YF returns percentage (e.g. 150 for 1.5x), we might need decimal?
-                             # Usually Alpha-V expects simple ratio? checking scoring...
-                             # Scoring uses: if der < 1: ... so 0.5 is good. 
-                             # YF 50 means 50%. So we divide by 100.
+                             
                              financial_data.der = financial_data.der / 100.0
                         print(f"[Alpha-V] Injected live DER: {financial_data.der}")
 
@@ -1312,6 +1436,7 @@ async def get_alpha_v_score_endpoint(
     # Determine price trend (simplified)
     price_trend = "neutral"
     volume_trend = "neutral"
+    has_price_data = False
     
     try:
         formatted_ticker = f"{ticker_upper}.JK" if not ticker_upper.endswith(".JK") else ticker_upper
@@ -1319,6 +1444,7 @@ async def get_alpha_v_score_endpoint(
         hist = stock.history(period="1mo")
         
         if not hist.empty and len(hist) > 5:
+            has_price_data = True
             recent_close = hist['Close'].iloc[-1]
             week_ago_close = hist['Close'].iloc[-5] if len(hist) >= 5 else hist['Close'].iloc[0]
             
@@ -1362,7 +1488,7 @@ async def get_alpha_v_score_endpoint(
         "data_availability": {
             "broker_data": broker_data is not None,
             "financial_data": financial_data is not None,
-            "price_data": price_trend != "neutral" or volume_trend != "neutral"
+            "price_data": has_price_data
         }
     }
 
@@ -1484,3 +1610,73 @@ async def get_conviction_analysis(ticker: str):
         result["rationale"].append(f"⚠️ Low data completeness ({completeness}%) - analysis may be incomplete")
     
     return result
+
+@router.post("/adk/swarm-analysis/{ticker}")
+async def run_swarm_analysis(ticker: str):
+    """
+    Triggers the Multi-Agent Swarm (Phase 18) to analyze the ticker.
+    Agents: Supervisor, Quant, Risk, Bandar.
+    """
+    from app.adk.agent_swarm import agent_swarm
+    
+    # 1. Gather Context (Reuse Conviction Logic)
+    # in a real implementation, we would call orchestrator.get_full_context(ticker)
+    # Here we emulate it by calling the existing conviction endpoint logic internally
+    # or just fetching what we have.
+    
+    # For now, let's just fetch the data directly to ensure fresh state
+    context_data = await get_conviction_analysis(ticker)
+    
+   
+    risk_profile = {
+        "atr_percentage": 0.02, # Default safe
+        "max_drawdown": 0.05
+    }
+    
+    # If we have technical data, try to extract ATR
+    if context_data.get("technical"):
+        # simple mock mapping for now
+        pass
+        
+    full_context = {
+        "alpha_v": context_data.get("alpha_v", {}),
+        "bandarmology": context_data.get("broker_summary", {}), # Mapping broker summary to bandarmology
+        "risk_profile": risk_profile
+    }
+    
+    # 2. Run Mission
+    mission_report = await agent_swarm.run_mission(ticker, full_context)
+    
+    return mission_report
+
+@router.get("/ml/forecast/{ticker}")
+async def get_price_forecast(ticker: str):
+    """
+    Get Next-Day Price Probability Forecast (Phase 18 ML).
+    Uses 'Trend Probability Model' (RandomForest Logic).
+    """
+    from app.services.ml_engine import ml_engine
+    
+    # Needs AlphaV and Bandar context
+    # In real app, we fetch from DB. Here we fetch live.
+    context = await get_conviction_analysis(ticker)
+    
+    alpha_v_score = 50
+    if context.get('alpha_v'):
+        alpha_v_score = context['alpha_v'].get('score', 50)
+        
+    bcr = 1.0
+    if context.get('broker_summary'):
+        bcr = context['broker_summary'].get('concentration_ratio', 1.0)
+        
+    features = {
+        "alpha_v_score": alpha_v_score,
+        "bcr": bcr,
+        "foreign_flow": 0 # Not implemented yet
+    }
+    
+    prediction = ml_engine.predict_next_day_trend(features)
+    return {
+        "ticker": ticker,
+        "forecast": prediction
+    }

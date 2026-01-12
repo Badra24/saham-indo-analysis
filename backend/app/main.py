@@ -83,8 +83,16 @@ async def lifespan(app: FastAPI):
     print("🚀 Starting Saham-Indo Trading Platform...")
     print(f"   Rate Limit: 120 requests/minute per IP")
     print(f"   ADK Module: {'✓ Enabled (AI Trading Assistant)' if ADK_AVAILABLE else '✗ Disabled'}")
+    print(f"   ADK Module: {'✓ Enabled (AI Trading Assistant)' if ADK_AVAILABLE else '✗ Disabled'}")
     yield
     print("👋 Shutting down...")
+    
+    # Close DB connection cleanly
+    try:
+        from app.services.database_service import db_service
+        db_service.close()
+    except Exception as e:
+        print(f"⚠️ Error closing DB on shutdown: {e}")
 
 
 app = FastAPI(
@@ -147,6 +155,14 @@ app.add_middleware(
 
 # Include main API router
 app.include_router(api_router, prefix="/api/v1")
+
+# Analytics Router (Deep Analysis)
+from app.routers import analytics
+app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["Analytics"])
+
+# Ingest Router (CSV Upload)
+from app.routers import ingest
+app.include_router(ingest.router, prefix="/api/v1", tags=["Data Ingestion"])
 
 # ADK Router - Conditional registration
 if ADK_AVAILABLE:

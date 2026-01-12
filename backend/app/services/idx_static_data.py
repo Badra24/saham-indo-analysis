@@ -191,21 +191,80 @@ def get_company_by_code(code: str) -> Optional[Dict]:
     return None
 
 
+# ==================== BROKER CLASSIFICATION DATA ====================
+# Hardcoded classification to avoid API dependency.
+# Sources: Market knowledge, Stockbit tags, historical behavior.
+
+BROKER_CLASSIFICATION = {
+    # RETAIL (Online Trading dominant)
+    "YP": {"type": "RETAIL", "is_foreign": False, "name_short": "Mirae"},
+    "PD": {"type": "RETAIL", "is_foreign": False, "name_short": "IPOT"},
+    "CC": {"type": "RETAIL", "is_foreign": False, "name_short": "Mandiri"},
+    "NI": {"type": "RETAIL", "is_foreign": False, "name_short": "BNI"},
+    "XC": {"type": "RETAIL", "is_foreign": False, "name_short": "Ajaib"},
+    "XL": {"type": "RETAIL", "is_foreign": False, "name_short": "Stockbit"},
+    "GR": {"type": "RETAIL", "is_foreign": False, "name_short": "Panin"},
+    "KK": {"type": "RETAIL", "is_foreign": False, "name_short": "Phillip"},
+    "EP": {"type": "RETAIL", "is_foreign": False, "name_short": "MNC"},
+    "OD": {"type": "RETAIL", "is_foreign": False, "name_short": "Danamon"},
+    "SQ": {"type": "RETAIL", "is_foreign": False, "name_short": "BCA"},
+    
+    # FOREIGN INSTITUTION (Big Funds)
+    "ZP": {"type": "INSTITUTION", "is_foreign": True, "name_short": "Maybank"},
+    "MS": {"type": "INSTITUTION", "is_foreign": True, "name_short": "Morgan Stanley"},
+    "KZ": {"type": "INSTITUTION", "is_foreign": True, "name_short": "CLSA"},
+    "CS": {"type": "INSTITUTION", "is_foreign": True, "name_short": "Credit Suisse"},
+    "AK": {"type": "INSTITUTION", "is_foreign": True, "name_short": "UBS"},
+    "BK": {"type": "INSTITUTION", "is_foreign": True, "name_short": "JP Morgan"},
+    "RX": {"type": "INSTITUTION", "is_foreign": True, "name_short": "Macquarie"},
+    "CG": {"type": "INSTITUTION", "is_foreign": True, "name_short": "Citigroup"},
+    "AG": {"type": "INSTITUTION", "is_foreign": True, "name_short": "Kiwoom"},
+    
+    # DOMESTIC INSTITUTION / BIG PLAYER
+    "YU": {"type": "INSTITUTION", "is_foreign": False, "name_short": "CIMB"},
+    "DX": {"type": "INSTITUTION", "is_foreign": False, "name_short": "Bahana"},
+    "CP": {"type": "INSTITUTION", "is_foreign": False, "name_short": "Valbury"},
+    "AI": {"type": "INSTITUTION", "is_foreign": False, "name_short": "UOB"},
+    "MG": {"type": "INSTITUTION", "is_foreign": False, "name_short": "Semesta"}, # Scalper King
+    "LG": {"type": "INSTITUTION", "is_foreign": False, "name_short": "Trimegah"},
+    "RF": {"type": "INSTITUTION", "is_foreign": False, "name_short": "Buana"},
+    "AZ": {"type": "INSTITUTION", "is_foreign": False, "name_short": "Sucor"},
+    "DR": {"type": "INSTITUTION", "is_foreign": False, "name_short": "RHB"},
+}
+
 def get_all_brokers() -> List[Dict]:
     """
-    Get all 93 registered brokers.
+    Get all 93 registered brokers with ENRICHED classification.
     
     Returns:
-        List of brokers with code, name, license
+        List of brokers with code, name, license, type, is_foreign
     """
     brokers = load_all_brokers()
+    results = []
     
-    return [{
-        "code": b.get("Code", ""),
-        "name": b.get("Name", ""),
-        "license": b.get("License", ""),
-        "source": "idx"
-    } for b in brokers]
+    for b in brokers:
+        code = b.get("Code", "")
+        
+        # Default values
+        b_type = "UNKNOWN" 
+        is_foreign = False
+        
+        # Enriched values
+        if code in BROKER_CLASSIFICATION:
+            info = BROKER_CLASSIFICATION[code]
+            b_type = info["type"]
+            is_foreign = info["is_foreign"]
+        
+        results.append({
+            "code": code,
+            "name": b.get("Name", ""),
+            "license": b.get("License", ""),
+            "type": b_type,
+            "is_foreign": is_foreign,
+            "source": "idx"
+        })
+        
+    return results
 
 
 def search_brokers(query: str, limit: int = 20) -> List[Dict]:
@@ -253,10 +312,24 @@ def get_broker_by_code(code: str) -> Optional[Dict]:
     
     for broker in brokers:
         if broker.get("Code", "").upper() == code:
+            b_code = broker.get("Code", "")
+            
+            # Default values
+            b_type = "UNKNOWN"
+            is_foreign = False
+            
+            # Enriched values
+            if b_code in BROKER_CLASSIFICATION:
+                info = BROKER_CLASSIFICATION[b_code]
+                b_type = info["type"]
+                is_foreign = info["is_foreign"]
+
             return {
-                "code": broker.get("Code", ""),
+                "code": b_code,
                 "name": broker.get("Name", ""),
                 "license": broker.get("License", ""),
+                "type": b_type,
+                "is_foreign": is_foreign,
                 "source": "idx"
             }
     

@@ -67,28 +67,7 @@ export default function ADKChatPanel({ symbol = 'BBCA', onStatusChange }) {
         }
     };
 
-    const sendMessage = useCallback(async () => {
-        if (!input.trim() || loading) return;
-
-        const userMessage = input.trim();
-        setInput('');
-
-        // Special handling for Full Analysis trigger
-        if (userMessage.startsWith('FULL_ANALYSIS:')) {
-            const ticker = userMessage.split(':')[1];
-            setMessages(prev => [...prev, { role: 'user', content: `Analisa lengkap ${ticker}` }]); // Show cleaner message
-
-            // Route to normal chat flow with specific instruction
-            setInput(`Berikan analisa lengkap 360 derajat untuk saham ${ticker}. Sertakan tinjauan Order Flow, Bandarmology, Teknikal, dan Fundamental (Alpha-V).`);
-            // We use setTimeout to allow state update to process then re-trigger send
-            setTimeout(() => {
-                sendMessage();
-            }, 100);
-            return;
-        }
-
-        // Add user message to chat
-        setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    const processMessage = async (messageText) => {
         setLoading(true);
         onStatusChange?.('loading');
 
@@ -97,7 +76,7 @@ export default function ADKChatPanel({ symbol = 'BBCA', onStatusChange }) {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    message: userMessage,
+                    message: messageText,
                     session_id: sessionId,
                     model: selectedModel
                 })
@@ -143,6 +122,32 @@ export default function ADKChatPanel({ symbol = 'BBCA', onStatusChange }) {
             onStatusChange?.('done');
             inputRef.current?.focus();
         }
+    };
+
+    const sendMessage = useCallback(async () => {
+        if (!input.trim() || loading) return;
+
+        const userMessage = input.trim();
+        setInput('');
+
+        // Special handling for Full Analysis trigger
+        if (userMessage.startsWith('FULL_ANALYSIS:')) {
+            const ticker = userMessage.split(':')[1];
+            // 1. Show the "clean" user message in UI
+            setMessages(prev => [...prev, { role: 'user', content: `Analisa lengkap ${ticker}` }]);
+
+            // 2. Construct the mapped prompt
+            const fullPrompt = `Berikan analisa lengkap 360 derajat untuk saham ${ticker}. Sertakan tinjauan Order Flow, Bandarmology, Teknikal, dan Fundamental (Alpha-V).`;
+
+            // 3. Process directly (avoid state round-trip loop)
+            await processMessage(fullPrompt);
+            return;
+        }
+
+        // Normal message
+        setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+        await processMessage(userMessage);
+
     }, [input, loading, sessionId, selectedModel, onStatusChange]);
 
     const handleKeyPress = (e) => {

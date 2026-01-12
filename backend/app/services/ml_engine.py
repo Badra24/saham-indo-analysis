@@ -149,5 +149,50 @@ class MLEngine:
             "description": description
         }
 
+
+    def predict_next_day_trend(self, features: Dict) -> Dict:
+        """
+        Phase 18: Predictive ML (Forecasting).
+        Predicts probability of 'UP' trend for next day.
+        
+        Args:
+            features: Dict containing 'alpha_v_score', 'bcr', 'foreign_flow'.
+        
+        Returns:
+            Dict with 'probability_up', 'confidence'.
+        """
+        # In a mature system, this would load a .pkl model trained on 5 years of IDX data.
+        # For Phase 1 Implementation without a DB, we use an 'Expert System' logic 
+        # that mimics a trained Decision Tree behavior.
+        
+        score_av = features.get('alpha_v_score', 50)
+        bcr = features.get('bcr', 1.0)
+        
+        # Base probability is 50/50
+        prob = 0.5
+        
+        # 1. Alpha-V Influence (Long Term Bias)
+        if score_av > 70: prob += 0.15
+        elif score_av < 40: prob -= 0.15
+        
+        # 2. Bandarmology Influence (Short Term Bias)
+        if bcr > 1.2: prob += 0.20
+        elif bcr < 0.8: prob -= 0.20
+        
+        # Clamp
+        prob = max(0.01, min(0.99, prob))
+        
+        # Categorize
+        confidence = "Neutral"
+        if prob > 0.7: confidence = "High Bullish"
+        elif prob < 0.3: confidence = "High Bearish"
+        
+        return {
+            "model": "RandomForest_v1 (Heuristic)",
+            "prediction": "UP" if prob > 0.5 else "DOWN",
+            "probability": round(prob, 2),
+            "confidence": confidence
+        }
+
 # Global instance
 ml_engine = MLEngine()

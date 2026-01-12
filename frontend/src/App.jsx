@@ -161,6 +161,20 @@ function App() {
     }
   }, [timeframe]);  // CRITICAL: Include timeframe so API uses current value
 
+  // Refresh only analysis data (called after CSV Upload)
+  const refreshAnalysis = useCallback(async () => {
+    if (!activeTicker) return;
+    try {
+      const analyzeRes = await fetch(`${API_BASE_URL}/api/v1/bandarmology/${activeTicker}`);
+      if (analyzeRes.ok) {
+        const analyzeData = await analyzeRes.json();
+        setConsensus(prev => ({ ...prev, bandarmology: analyzeData }));
+      }
+    } catch (e) {
+      console.error("Refresh analysis failed:", e);
+    }
+  }, [activeTicker]);
+
   // Handle stock selection - AUTO LOAD
   const handleStockSelect = useCallback((selectedTicker) => {
     setActiveTicker(selectedTicker);
@@ -430,6 +444,7 @@ function App() {
             data={consensus?.bandarmology}
             ticker={activeTicker}
             isLoading={loading}
+            onDataUpdate={refreshAnalysis}
           />
         </div>
       </div>

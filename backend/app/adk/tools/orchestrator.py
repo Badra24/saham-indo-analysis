@@ -86,15 +86,33 @@ def _get_full_analysis_data_sync(symbol: str) -> Dict[str, Any]:
         }
         
         # ========================================
-        # PHASE 2: BANDARMOLOGY ANALYSIS (REAL DATA FROM GoAPI)
+        # PHASE 2: BANDARMOLOGY ANALYSIS (HYBRID DB + GoAPI)
         # ========================================
         try:
-            from app.services.goapi_client import get_goapi_client
+            from app.services.database_service import db_service
+            from datetime import date
             
-            goapi_client = get_goapi_client()
-            # Remove .JK suffix for GoAPI (it expects raw symbol)
+            # 1. Try DB first (Uploaded / Cached data)
             raw_symbol = formatted_symbol.replace(".JK", "")
-            bandar_result = goapi_client.get_broker_summary(raw_symbol)
+            # Try today, then recent history if needed
+            db_data = db_service.get_broker_summary_by_date(raw_symbol, date.today().isoformat())
+            
+            bandar_result = None
+            data_source = "UNKNOWN"
+            
+            if db_data:
+                bandar_result = db_data
+                data_source = f"DATABASE ({db_data.get('source', 'upload')})"
+                # DB fields might map slightly differently, ensure compatibility
+                if 'status' not in bandar_result:
+                    bandar_result['status'] = 'NEUTRAL'
+                    
+            # 2. If no DB data, try GoAPI
+            if not bandar_result:
+                from app.services.goapi_client import get_goapi_client
+                goapi_client = get_goapi_client()
+                bandar_result = goapi_client.get_broker_summary(raw_symbol)
+                data_source = "DEMO" if bandar_result.get('is_demo', True) else "GOAPI_REAL"
             
             # Extract smart money detection from analysis
             smart_money_detected = (
@@ -113,26 +131,27 @@ def _get_full_analysis_data_sync(symbol: str) -> Dict[str, Any]:
             }
             
             # Build recommendation based on status
-            if bandar_result.get('status') == 'BIG_ACCUMULATION':
+            status = bandar_result.get('status', 'NEUTRAL')
+            if status == 'BIG_ACCUMULATION':
                 recommendation = "BULLISH - Institusi agresif membeli, ikuti arah Smart Money"
-            elif bandar_result.get('status') == 'ACCUMULATION':
+            elif status == 'ACCUMULATION':
                 recommendation = "BULLISH MODERAT - Akumulasi terdeteksi"
-            elif bandar_result.get('status') == 'BIG_DISTRIBUTION':
+            elif status == 'BIG_DISTRIBUTION':
                 recommendation = "BEARISH - Institusi agresif menjual, WASPADA"
-            elif bandar_result.get('status') == 'DISTRIBUTION':
+            elif status == 'DISTRIBUTION':
                 recommendation = "BEARISH MODERAT - Distribusi terdeteksi"
-            elif bandar_result.get('status') == 'CHURNING':
+            elif status == 'CHURNING':
                 recommendation = "NETRAL - Wash trading terdeteksi, HINDARI"
             else:
                 recommendation = "NETRAL - Tidak ada arah jelas"
             
             phase_2_bandarmology = {
                 "smart_money_detected": smart_money_detected,
-                "broker_pattern": status_to_pattern.get(bandar_result.get('status', 'NEUTRAL'), 'NETRAL'),
-                "status_raw": bandar_result.get('status', 'NEUTRAL'),
+                "broker_pattern": status_to_pattern.get(status, 'NETRAL'),
+                "status_raw": status,
                 "top_buyers": bandar_result.get('top_buyers', []),
                 "top_sellers": bandar_result.get('top_sellers', []),
-                "net_foreign_flow": bandar_result.get('foreign_net_flow', 0),
+                "net_foreign_flow": bandar_result.get('foreign_net_flow', 0) or bandar_result.get('net_foreign_flow', 0),
                 "institutional_net_flow": bandar_result.get('institutional_net_flow', 0),
                 "retail_net_flow": bandar_result.get('retail_net_flow', 0),
                 "concentration_ratio": bandar_result.get('concentration_ratio', 0),
@@ -140,11 +159,11 @@ def _get_full_analysis_data_sync(symbol: str) -> Dict[str, Any]:
                 "churn_detected": bandar_result.get('churn_detected', False),
                 "signal_strength": bandar_result.get('signal_strength', 0),
                 "recommendation": recommendation,
-                "data_source": "DEMO" if bandar_result.get('is_demo', True) else "GOAPI_REAL"
+                "data_source": data_source
             }
             
         except Exception as bandar_error:
-            print(f"Error getting GoAPI bandarmology: {bandar_error}")
+            print(f"Error getting bandarmology: {bandar_error}")
             # Fallback to minimal data
             phase_2_bandarmology = {
                 "smart_money_detected": False,
@@ -239,6 +258,54 @@ def _get_full_analysis_data_sync(symbol: str) -> Dict[str, Any]:
             # Use uploaded data if available (cache in endpoints)
             uploaded_broker = _uploaded_broker_data.get(formatted_symbol)
             uploaded_financial = _uploaded_financial_data.get(formatted_symbol)
+            
+            # Hybrid Fallback: Check DuckDB if cache is empty
+            from app.services.database_service import db_service
+            from app.models.file_models import BrokerSummaryData, FinancialReportData, BrokerType, BrokerEntry
+            from datetime import date
+            
+            non_jk_symbol = formatted_symbol.replace(".JK", "")
+            
+            if not uploaded_broker:
+                try:
+                    db_broker = db_service.get_broker_summary_by_date(non_jk_symbol, date.today().isoformat())
+                    if db_broker:
+                        print(f"[Orchestrator] Found persistent broker data in DuckDB for {formatted_symbol}")
+                        # Reconstruct BrokerSummaryData from DB dict
+                        top_buyers = [
+                            BrokerEntry(broker_code=b['code'], buy_value=b['value'], buy_volume=b['volume'], broker_type=BrokerType.UNKNOWN, is_foreign=b.get('is_foreign', False)) 
+                            for b in db_broker.get("top_buyers", [])
+                        ]
+                        top_sellers = [
+                            BrokerEntry(broker_code=s['code'], sell_value=s['value'], sell_volume=s['volume'], broker_type=BrokerType.UNKNOWN, is_foreign=s.get('is_foreign', False)) 
+                            for s in db_broker.get("top_sellers", [])
+                        ]
+                        
+                        uploaded_broker = BrokerSummaryData(
+                            ticker=formatted_symbol,
+                            date=date.today().isoformat(),
+                            source=f"db_{db_broker.get('source', 'unknown')}",
+                            top_buyers=top_buyers,
+                            top_sellers=top_sellers,
+                            bcr=float(db_broker.get("concentration_ratio", 0) or 0),
+                            net_foreign_flow=float(db_broker.get("foreign_net_flow", 0) or 0),
+                            foreign_flow_pct=0,
+                            total_buy=float(db_broker.get("buy_value", 0) or 0),
+                            total_sell=float(db_broker.get("sell_value", 0) or 0),
+                            total_transaction_value=float(db_broker.get("buy_value", 0) or 0) + float(db_broker.get("sell_value", 0) or 0),
+                            phase=db_broker.get("status", "NEUTRAL")
+                        )
+                except Exception as e:
+                    print(f"[Orchestrator] Broker DB Fallback failed: {e}")
+            
+            if not uploaded_financial:
+                try:
+                    db_fin = db_service.get_financial_report(non_jk_symbol)
+                    if db_fin:
+                        print(f"[Orchestrator] Found persistent financial data in DuckDB for {formatted_symbol}")
+                        uploaded_financial = FinancialReportData(**db_fin)
+                except Exception as e:
+                    print(f"[Orchestrator] Financial DB Fallback failed: {e}")
             
             alpha_v_score = calculate_alpha_v_score(
                 ticker=formatted_symbol,

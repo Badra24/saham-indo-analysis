@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = ""
     ADK_MODEL: Optional[str] = None
     ADK_TIMEOUT: int = 120
+    STOCKBIT_COOKIES: Optional[str] = None
     
     # GoAPI Configuration (Indonesia Stock Data)
     GO_API_KEY: str = ""

@@ -226,23 +226,31 @@ class GoAPIClient:
         sells.sort(key=lambda x: x.get("value", 0), reverse=True)
         
         # ==================== ENRICH WITH BROKER INFO ====================
+        from app.services.idx_static_data import get_broker_by_code
+
         def enrich_broker(broker_data: Dict) -> Dict:
-            """Add broker classification info"""
+            """Add broker classification info from IDX Static Data"""
             code = broker_data.get("code", "")
-            broker_info = BROKER_TYPES.get(code, {
-                'name': broker_data.get("broker", {}).get("name", code),
-                'type': 'UNKNOWN',
-                'is_foreign': False,
-                'weight': 0
-            })
+            # Use central static data for name and type
+            static_info = get_broker_by_code(code)
+            
+            # Default values if not found or incomplete
+            name = code
+            b_type = "UNKNOWN"
+            is_foreign = False
+            
+            if static_info:
+                name = static_info.get("name", code)
+                b_type = static_info.get("type", "UNKNOWN")
+                is_foreign = static_info.get("is_foreign", False)
+
             return {
                 "code": code,
-                "name": broker_info.get("name", code),
-                "type": broker_info.get("type", "UNKNOWN"),
+                "name": name,
+                "type": b_type,
                 "value": broker_data.get("value", 0),
                 "volume": broker_data.get("lot", 0) * 100,  # lot to shares
-                "is_foreign": broker_info.get("is_foreign", False),
-                "weight": broker_info.get("weight", 0)
+                "is_foreign": is_foreign
             }
         
         top_buyers_enriched = [enrich_broker(b) for b in buys[:5]]
@@ -258,16 +266,25 @@ class GoAPIClient:
         concentration_ratio = (top5_buy / total_buy_value * 100) if total_buy_value > 0 else 0
         
         # ==================== CALCULATE FLOW BY TYPE ====================
-        institutional_buy = sum(b.get("value", 0) for b in buys if BROKER_TYPES.get(b.get("code", ""), {}).get("type") == "INSTITUTION")
-        institutional_sell = sum(s.get("value", 0) for s in sells if BROKER_TYPES.get(s.get("code", ""), {}).get("type") == "INSTITUTION")
+        # Helper to get type for aggregation
+        def get_broker_type(code):
+            info = get_broker_by_code(code)
+            return info.get("type", "UNKNOWN") if info else "UNKNOWN"
+
+        def is_broker_foreign(code):
+            info = get_broker_by_code(code)
+            return info.get("is_foreign", False) if info else False
+
+        institutional_buy = sum(b.get("value", 0) for b in buys if get_broker_type(b.get("code", "")) == "INSTITUTION")
+        institutional_sell = sum(s.get("value", 0) for s in sells if get_broker_type(s.get("code", "")) == "INSTITUTION")
         institutional_net = institutional_buy - institutional_sell
         
-        retail_buy = sum(b.get("value", 0) for b in buys if BROKER_TYPES.get(b.get("code", ""), {}).get("type") == "RETAIL")
-        retail_sell = sum(s.get("value", 0) for s in sells if BROKER_TYPES.get(s.get("code", ""), {}).get("type") == "RETAIL")
+        retail_buy = sum(b.get("value", 0) for b in buys if get_broker_type(b.get("code", "")) == "RETAIL")
+        retail_sell = sum(s.get("value", 0) for s in sells if get_broker_type(s.get("code", "")) == "RETAIL")
         retail_net = retail_buy - retail_sell
         
-        foreign_buy = sum(b.get("value", 0) for b in buys if BROKER_TYPES.get(b.get("code", ""), {}).get("is_foreign", False))
-        foreign_sell = sum(s.get("value", 0) for s in sells if BROKER_TYPES.get(s.get("code", ""), {}).get("is_foreign", False))
+        foreign_buy = sum(b.get("value", 0) for b in buys if is_broker_foreign(b.get("code", "")))
+        foreign_sell = sum(s.get("value", 0) for s in sells if is_broker_foreign(s.get("code", "")))
         foreign_net = foreign_buy - foreign_sell
         
         # ==================== DETECT CHURNING (WASH TRADING) ====================
@@ -655,7 +672,7 @@ async def get_stock_summary_hybrid(
         date_str: Date in YYYY-MM-DD format
     """
     try:
-        from app.services.idx_browser_client import get_idx_browser_client
+        from app.services.browser_client import get_idx_browser_client
         
         browser_client = get_idx_browser_client()
         data = await browser_client.get_stock_summary(symbol, date_str)

@@ -20,3 +20,5 @@ __pycache__/
 # Project Specific Ignores (User Request)
 riset-artikel-project/
 contoh/
+*.duckdb
+*.duckdb.wal

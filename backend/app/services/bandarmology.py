@@ -97,6 +97,7 @@ class BandarmologyEngine:
             "top_sellers": [s.get('code') for s in top_sellers[:3]],
             "dominant_player": dom_player,
             "signals": signals,
+            "graph_analysis": self.build_broker_graph(broker_data),
             "broker_data_available": True
         }
 
@@ -145,6 +146,78 @@ class BandarmologyEngine:
         score = max(0, min(100, score)) # Clamp
         
         return round(score, 2)
+
+    def build_broker_graph(self, broker_data: Dict) -> Dict:
+        """
+        Builds a Network Graph of Broker Interaction (Phase 18).
+        Since we don't have tick-by-tick data, we use 'Value Matching Heuristic'.
+        
+        Logic:
+        - If Broker A Buys 10B and Broker B Sells 10B (+/- 5%) on the same day,
+          we infer a HIGH probability of 'Direct Transfer' (Crossing/Nego/Match).
+          
+        Returns:
+            Dict with 'clusters', 'central_node', 'suspicious_edges'.
+        """
+        import networkx as nx
+        
+        if not broker_data or not broker_data.get('top_buyers') or not broker_data.get('top_sellers'):
+            return {}
+            
+        buyers = broker_data.get('top_buyers', [])
+        sellers = broker_data.get('top_sellers', [])
+        
+        G = nx.DiGraph()
+        
+        suspicious_flows = []
+        
+        # 1. Build Nodes & Heuristic Edges
+        for buyer in buyers:
+            b_code = buyer['code']
+            b_val = float(buyer['value'])
+            
+            for seller in sellers:
+                s_code = seller['code']
+                s_val = float(seller['value'])
+                
+                # Check for Value Match (Cluster)
+                # If values match within 5%, assume connection
+                if b_val > 0 and s_val > 0:
+                    ratio = min(b_val, s_val) / max(b_val, s_val)
+                    if ratio > 0.95:
+                        G.add_edge(s_code, b_code, weight=s_val)
+                        suspicious_flows.append({
+                            "from": s_code,
+                            "to": b_code,
+                            "value": s_val,
+                            "type": "POSSIBLE_CROSSING"
+                        })
+
+        # 2. Analyze Graph
+        if G.number_of_nodes() == 0:
+            return {"status": "NO_CLUSTERS", "central_broker": None}
+            
+        # Centrality (Who is the Kingpin?)
+        try:
+            centrality = nx.eigenvector_centrality(G, max_iter=1000, tolerance=1e-06)
+            central_broker = max(centrality, key=centrality.get)
+        except:
+             # Fallback if graph is not connected
+             degrees = dict(G.degree(weight='weight'))
+             central_broker = max(degrees, key=degrees.get) if degrees else None
+
+        # Detect Cycles (Wash Trading: A->B->A)
+        try:
+            cycles = list(nx.simple_cycles(G))
+        except:
+            cycles = []
+            
+        return {
+            "graph_summary": f"Nodes: {G.number_of_nodes()}, Edges: {G.number_of_edges()}",
+            "central_broker": central_broker,
+            "suspicious_flows": suspicious_flows,
+            "wash_trading_loops": cycles
+        }
 
 # Global Instance
 bandarmology_engine = BandarmologyEngine()

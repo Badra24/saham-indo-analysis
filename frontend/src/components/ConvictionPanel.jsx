@@ -130,6 +130,11 @@ export default function ConvictionPanel({ symbol = 'BBCA', orderFlow, indicatorD
                         onClick={() => setActiveTab('confluence')}
                     >Score</button>
                     <button
+                        className={`tab-btn ${activeTab === 'deep-ai' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('deep-ai')}
+                        title="AI Swarm & ML Forecast"
+                    >🧠 Deep AI</button>
+                    <button
                         className={`tab-btn ${activeTab === 'looping' ? 'active' : ''}`}
                         onClick={() => setActiveTab('looping')}
                     >Looping</button>
@@ -151,6 +156,9 @@ export default function ConvictionPanel({ symbol = 'BBCA', orderFlow, indicatorD
                 )}
                 {activeTab === 'confluence' && (
                     <ConfluenceScore data={confluenceData} symbol={symbol} />
+                )}
+                {activeTab === 'deep-ai' && (
+                    <DeepAnalysisView symbol={symbol} />
                 )}
                 {activeTab === 'looping' && (
                     <LoopingPhase data={confluenceData} symbol={symbol} />
@@ -708,6 +716,204 @@ function SetupInput({ symbol }) {
                     {saved ? '✅ Saved!' : '💾 Save Journal'}
                 </button>
             </div>
+        </div>
+    );
+}
+
+// ============================================================================
+// DEEP ANALYSIS VIEW (Swarm + ML) - Phase 18 Integration
+// ============================================================================
+
+function DeepAnalysisView({ symbol }) {
+    const [status, setStatus] = useState('IDLE'); // IDLE, LOADING, DONE, ERROR
+    const [swarmResult, setSwarmResult] = useState(null);
+    const [forecastResult, setForecastResult] = useState(null);
+
+    const runScan = async () => {
+        setStatus('LOADING');
+        try {
+            // Run parallel requests
+            // FIXED: Added /api/v1 prefix because endpoints are mounted there
+            const [swarmRes, forecastRes] = await Promise.all([
+                fetch(`${API_BASE_URL}/api/v1/adk/swarm-analysis/${symbol}`, { method: 'POST' }),
+                fetch(`${API_BASE_URL}/api/v1/ml/forecast/${symbol}`)
+            ]);
+
+            if (swarmRes.ok && forecastRes.ok) {
+                const sData = await swarmRes.json();
+                const fData = await forecastRes.json();
+                setSwarmResult(sData);
+                setForecastResult(fData);
+                setStatus('DONE');
+            } else {
+                console.error("Swarm Status:", swarmRes.status, "Forecast Status:", forecastRes.status);
+                setStatus('ERROR');
+            }
+        } catch (e) {
+            console.error(e);
+            setStatus('ERROR');
+        }
+    };
+
+    if (status === 'IDLE') {
+        return (
+            <div className="flex flex-col items-center justify-center p-8 text-center space-y-4">
+                <div className="p-4 bg-brand-accent/10 rounded-full animate-pulse">
+                    <span className="text-4xl">🧠</span>
+                </div>
+                <div>
+                    <h3 className="text-lg font-bold text-white mb-2">Deep AI Analysis</h3>
+                    <p className="text-sm text-gray-400 max-w-xs mx-auto mb-6">
+                        Trigger the Multi-Agent Swarm and Predictive ML Engine.
+                        This takes 5-10 seconds.
+                    </p>
+                </div>
+                <button
+                    onClick={runScan}
+                    className="px-6 py-3 bg-brand-accent hover:bg-brand-accent/80 text-white font-bold rounded-lg transition-all flex items-center gap-2"
+                >
+                    <span>🚀 Run Deep Scan</span>
+                </button>
+            </div>
+        );
+    }
+
+    if (status === 'LOADING') {
+        return (
+            <div className="flex flex-col items-center justify-center p-12 text-center">
+                <div className="w-12 h-12 border-4 border-brand-accent border-t-transparent rounded-full animate-spin mb-4"></div>
+                <h3 className="text-white font-bold animate-pulse">Swarm Activated...</h3>
+                <p className="text-xs text-gray-400 mt-2">Agents are debating: Quant, Risk, Bandar</p>
+            </div>
+        );
+    }
+
+    if (status === 'ERROR') {
+        return (
+            <div className="p-8 text-center">
+                <h3 className="text-red-400 font-bold mb-2">Analysis Failed</h3>
+                <button onClick={runScan} className="text-sm underline text-gray-400">Retry</button>
+            </div>
+        );
+    }
+
+    // DONE STATE
+    const probability = forecastResult?.forecast?.probability * 100 || 50;
+    const isBullish = forecastResult?.forecast?.prediction === 'UP';
+
+    // Safety check for swarm output
+    const verdict = swarmResult?.decision || "UNKNOWN";
+    const verdictColor = verdict.includes('BUY') ? 'text-green-400' : verdict.includes('AVOID') || verdict.includes('NO TRADE') ? 'text-red-400' : 'text-yellow-400';
+
+    return (
+        <div className="space-y-4 p-2 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* 1. ML Forecast Card */}
+            {forecastResult?.forecast && (
+                <div className="glass-card p-4 border border-white/10 rounded-lg bg-gradient-to-br from-white/5 to-transparent">
+                    <div className="flex justify-between items-start mb-4">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xl">🔮</span>
+                            <div>
+                                <h4 className="font-bold text-sm text-gray-200">AI Trend Forecast</h4>
+                                <span className="text-[10px] text-gray-500 font-mono">Model: {forecastResult.forecast.model}</span>
+                            </div>
+                        </div>
+                        <span className={`px-2 py-1 rounded text-[10px] font-bold border ${isBullish
+                                ? 'bg-green-500/10 border-green-500/30 text-green-400'
+                                : 'bg-red-500/10 border-red-500/30 text-red-400'
+                            }`}>
+                            {forecastResult.forecast.confidence}
+                        </span>
+                    </div>
+
+                    <div className="flex items-center justify-between mb-2">
+                        <span className={`text-3xl font-black tracking-tighter ${isBullish ? 'text-green-400' : 'text-red-400'}`}>
+                            {forecastResult.forecast.prediction}
+                        </span>
+                        <span className="text-xs text-gray-400">{probability.toFixed(0)}% Probability</span>
+                    </div>
+
+                    {/* Probability Bar */}
+                    <div className="h-2 bg-gray-700/50 rounded-full overflow-hidden mb-2">
+                        <div
+                            className={`h-full transition-all duration-1000 ${isBullish ? 'bg-green-500' : 'bg-red-500'}`}
+                            style={{ width: `${probability}%` }}
+                        ></div>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-gray-500">
+                        <span>Bearish</span>
+                        <span>Neutral</span>
+                        <span>Bullish</span>
+                    </div>
+                </div>
+            )}
+
+            {/* 2. Swarm Report */}
+            {swarmResult && (
+                <div className="glass-card border border-white/10 rounded-lg overflow-hidden">
+                    {/* Header */}
+                    <div className="p-4 border-b border-white/10 bg-white/5 flex justify-between items-center bg-grid-pattern">
+                        <div>
+                            <div className="text-[10px] text-brand-accent font-bold uppercase tracking-widest mb-1">Swarm Consensus</div>
+                            <div className={`text-2xl font-black ${verdictColor}`}>
+                                {verdict}
+                            </div>
+                        </div>
+                        <div className="text-4xl opacity-20">🤖</div>
+                    </div>
+
+                    <div className="divide-y divide-white/5 bg-black/20">
+                        {/* Quant Agent */}
+                        <div className="p-3 hover:bg-white/5 transition-colors">
+                            <div className="flex items-start gap-3">
+                                <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400">💰</div>
+                                <div className="flex-1">
+                                    <div className="flex justify-between mb-1">
+                                        <span className="text-xs font-bold text-gray-300">Quant Analyst</span>
+                                        <span className="text-[10px] px-1.5 py-0.5 bg-blue-500/20 text-blue-300 rounded">Fundamental</span>
+                                    </div>
+                                    <p className="text-sm text-gray-400 leading-snug">{swarmResult.details.quant.analysis}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Bandar Detective */}
+                        <div className="p-3 hover:bg-white/5 transition-colors">
+                            <div className="flex items-start gap-3">
+                                <div className="p-2 bg-purple-500/10 rounded-lg text-purple-400">🕵️</div>
+                                <div className="flex-1">
+                                    <div className="flex justify-between mb-1">
+                                        <span className="text-xs font-bold text-gray-300">Bandar Detective</span>
+                                        <span className="text-[10px] px-1.5 py-0.5 bg-purple-500/20 text-purple-300 rounded">Flow</span>
+                                    </div>
+                                    <p className="text-sm text-gray-400 leading-snug">{swarmResult.details.bandar.analysis}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Risk Officer */}
+                        <div className="p-3 hover:bg-white/5 transition-colors">
+                            <div className="flex items-start gap-3">
+                                <div className="p-2 bg-orange-500/10 rounded-lg text-orange-400">🛡️</div>
+                                <div className="flex-1">
+                                    <div className="flex justify-between mb-1">
+                                        <span className="text-xs font-bold text-gray-300">Risk Officer</span>
+                                        <span className="text-[10px] px-1.5 py-0.5 bg-orange-500/20 text-orange-300 rounded">Safety</span>
+                                    </div>
+                                    <p className="text-sm text-gray-400 leading-snug">
+                                        {swarmResult.details.risk.warning ? (
+                                            <span className="text-red-400 font-bold">{swarmResult.details.risk.warning}</span>
+                                        ) : "Checks Passed. "}
+                                        <span className="block mt-1 text-xs text-gray-500">
+                                            Max Allocation Limit: <span className="text-white font-mono">{swarmResult.details.risk.max_allocation}</span>
+                                        </span>
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
