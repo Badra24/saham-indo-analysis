@@ -146,7 +146,48 @@ class BandarmologyEngine:
         score = max(0, min(100, score)) # Clamp
         
         return round(score, 2)
+        return round(score, 2)
 
+    def get_ml_features(self, broker_data: Optional[Dict]) -> Dict:
+        """
+        Extract numerical features suitable for Machine Learning models.
+        
+        Returns:
+            Dict with numerical keys: 'bcr', 'retail_flow_ratio', 'foreign_flow_ratio'
+        """
+        summary = self.analyze_broker_summary(broker_data)
+        
+        # Default neutral values if data invalid
+        if summary['status'] == 'DATA_UNAVAILABLE':
+            return {
+                'bcr': 1.0,
+                'retail_flow_ratio': 0.0,
+                'foreign_flow_ratio': 0.0,
+                'accumulation_score': 0.5 # 0.5 = Neutral
+            }
+            
+        # 1. BCR (Log transform often better for outliers, but raw is ok for Tree models)
+        bcr = summary.get('concentration_ratio', 1.0)
+        
+        # 2. Accumulation Score
+        # Map string status to number
+        status_map = {
+            'BIG_DISTRIBUTION': 0.0,
+            'DISTRIBUTION': 0.25,
+            'NEUTRAL': 0.5,
+            'ACCUMULATION': 0.75,
+            'BIG_ACCUMULATION': 1.0,
+            'ACCUMULATION_TERSELUBUNG': 0.8 # Hidden acc is bullish
+        }
+        acc_score = status_map.get(summary.get('status', 'NEUTRAL'), 0.5)
+        
+        return {
+            'bcr': bcr,
+            'accumulation_score': acc_score,
+            # Placeholder for flows until we ingest full Broker Code clusters
+            'retail_flow_ratio': 0.0, 
+            'foreign_flow_ratio': 0.0
+        }
     def build_broker_graph(self, broker_data: Dict) -> Dict:
         """
         Builds a Network Graph of Broker Interaction (Phase 18).

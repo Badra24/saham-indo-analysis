@@ -5,6 +5,7 @@ Implements risk management based on proprietary trading standards:
 - Daily Loss Limit (Kill Switch): Auto-stop at -2.5% daily
 - Position Sizing: Based on ATR volatility
 - Maximum Drawdown tracking
+- Kelly Criterion Integration (Institutional Grade)
 
 Reference: Riset Gabungan Remora-Quant - Chapter 6
 """
@@ -71,6 +72,7 @@ class RiskManager:
     2. Position Sizing: Volatility-adjusted sizing
     3. Exposure Monitoring: Track total portfolio risk
     4. Drawdown Protection: Reduce size during drawdowns
+    5. Kelly Criterion: Dynamic sizing based on Win Probability
     """
     
     def __init__(self, config: RiskConfig = None, initial_equity: float = 100_000_000):
@@ -160,23 +162,59 @@ class RiskManager:
         """Check if trading is allowed"""
         return not self.kill_switch_active
     
+    def calculate_kelly_size(self, price: float, win_prob: float, 
+                             win_loss_ratio: float, 
+                             fraction: float = 0.5) -> Dict:
+        """
+        Calculate position size using Fractional Kelly Criterion.
+        
+        Formula: f* = (p * b - q) / b
+        Where:
+           f* = fraction of capital to bet
+           p = probability of winning (win_prob)
+           q = probability of losing (1 - p)
+           b = odds ratio (win_loss_ratio)
+           
+        We typically use 'Half Kelly' (fraction=0.5) to avoid ruin.
+        """
+        if self.kill_switch_active:
+            return {"shares": 0, "message": "Kill switch active"}
+            
+        # Kelly Fraction
+        q = 1.0 - win_prob
+        if win_loss_ratio <= 0:
+            kelly_f = 0
+        else:
+            kelly_f = ((win_prob * win_loss_ratio) - q) / win_loss_ratio
+        
+        # Apply Fraction (Half Kelly is standard for safety)
+        # Also clamp to max_position_per_stock config
+        target_exposure = min(max(0, kelly_f * fraction), self.config.max_position_per_stock)
+        
+        # Calculate capital
+        capital_to_deploy = self.current_equity * target_exposure
+        
+        shares = int(capital_to_deploy / price)
+        # Round to lot (100)
+        shares = max(0, (shares // 100) * 100)
+        
+        value = shares * price
+        
+        return {
+            "shares": shares,
+            "value": value,
+            "kelly_fraction_raw": round(kelly_f, 2),
+            "target_exposure": round(target_exposure, 2),
+            "message": f"Kelly Sizing ({fraction}x): {shares:,} shares"
+        }
+
     def calculate_position_size(self, price: float, atr: float, 
                                  available_capital: float = None) -> Dict:
         """
-        Calculate position size using volatility-adjusted method
-        
-        Formula: Position Size = (Capital * Risk%) / (ATR * Multiplier)
-        
-        Args:
-            price: Current stock price
-            atr: Average True Range (volatility measure)
-            available_capital: Capital available for this trade
-            
-        Returns:
-            Dict with position sizing details
+        Legacy ATR-based sizing (Fallback if no ML probability is known).
         """
         if self.kill_switch_active:
-            return {
+             return {
                 'shares': 0,
                 'value': 0,
                 'risk_amount': 0,
