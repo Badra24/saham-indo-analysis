@@ -155,6 +155,16 @@ def search_emitens(query: str, limit: int = 20) -> List[Dict]:
     return results
 
 
+def get_all_tickers(suffix: str = ".JK") -> List[str]:
+    """
+    Get list of all stock tickers with suffix.
+    Useful for screener.
+    """
+    companies = load_all_companies()
+    return [f"{c.get('KodeEmiten', '')}{suffix}" for c in companies if c.get('KodeEmiten')]
+
+
+
 def get_company_by_code(code: str) -> Optional[Dict]:
     """
     Get single company by exact code.

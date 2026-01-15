@@ -207,3 +207,174 @@ async def health_check():
             "status": adk_status
         }
     }
+
+
+# ============================================================================
+# STOCKBIT TOKEN MANAGEMENT (For Docker Hot-Reload)
+# ============================================================================
+import os
+from fastapi import Header, HTTPException
+from pydantic import BaseModel
+
+# Rate limiter for sensitive endpoints
+_token_attempt_count = {}
+_token_attempt_limit = 5  # Max 5 attempts per minute
+
+def _check_admin_auth(admin_key: str = None) -> bool:
+    """Verify admin secret key."""
+    expected_key = os.getenv("ADMIN_SECRET_KEY", "")
+    
+    if not expected_key or expected_key == "change_this_to_a_random_secret_key":
+        # If no key configured, allow access (dev mode)
+        return True
+    
+    return admin_key == expected_key
+
+def _rate_limit_check(client_id: str) -> bool:
+    """Check if client has exceeded rate limit for token operations."""
+    import time
+    now = time.time()
+    minute_ago = now - 60
+    
+    # Clean old attempts
+    if client_id in _token_attempt_count:
+        _token_attempt_count[client_id] = [
+            ts for ts in _token_attempt_count[client_id] if ts > minute_ago
+        ]
+    else:
+        _token_attempt_count[client_id] = []
+    
+    if len(_token_attempt_count[client_id]) >= _token_attempt_limit:
+        return False
+    
+    _token_attempt_count[client_id].append(now)
+    return True
+
+
+@app.get("/api/stockbit/status")
+async def stockbit_status():
+    """
+    Check Stockbit client status (public endpoint).
+    
+    Returns:
+        - token_valid: Whether current token is working
+        - needs_refresh: True if token expired (401 received)
+        - last_error: Last error message if any
+        - request_count: Total requests made
+    """
+    try:
+        from app.services.stockbit_client import stockbit_client
+        status = stockbit_client.get_status()
+        
+        # Hide sensitive details in public response
+        return {
+            "success": True,
+            "token_valid": status.get("token_valid"),
+            "token_set": status.get("token_set"),
+            "needs_refresh": status.get("needs_refresh"),
+            "request_count": status.get("request_count"),
+            # Only show error message, not full details
+            "has_error": status.get("last_error") is not None
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+class TokenUpdateRequest(BaseModel):
+    token: str
+
+
+@app.post("/api/stockbit/token")
+async def update_stockbit_token(
+    request: Request,
+    body: TokenUpdateRequest,
+    x_admin_key: str = Header(None, alias="X-Admin-Key")
+):
+    """
+    Update Stockbit token at runtime (PROTECTED - requires admin key).
+    
+    Headers:
+        X-Admin-Key: Your ADMIN_SECRET_KEY from .env
+    
+    Body:
+        {"token": "new_stockbit_token_here"}
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    
+    # Rate limit check
+    if not _rate_limit_check(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many token update attempts. Please wait a minute."
+        )
+    
+    # Auth check
+    if not _check_admin_auth(x_admin_key):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing X-Admin-Key header"
+        )
+    
+    try:
+        from app.services.stockbit_client import stockbit_client
+        
+        if not body.token:
+            return {
+                "success": False,
+                "error": "Token cannot be empty"
+            }
+        
+        success = stockbit_client.update_token(body.token)
+        
+        return {
+            "success": success,
+            "message": "Token updated successfully" if success else "Failed to update token",
+            **stockbit_client.get_status()
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@app.get("/api/stockbit/test")
+async def test_stockbit_connection():
+    """
+    Test Stockbit connection with current token.
+    
+    Quick way to verify if token is working without making full analysis.
+    """
+    try:
+        from app.services.stockbit_client import stockbit_client
+        import asyncio
+        
+        # Test with a simple API call
+        result = await stockbit_client.get_orderbook("BBCA")
+        
+        if result:
+            return {
+                "success": True,
+                "message": "Token is valid and working",
+                "sample_data": {
+                    "symbol": result.get("symbol"),
+                    "lastprice": result.get("lastprice"),
+                    "source": result.get("source")
+                },
+                **stockbit_client.get_status()
+            }
+        else:
+            return {
+                "success": False,
+                "message": "Token invalid or API error",
+                **stockbit_client.get_status()
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+

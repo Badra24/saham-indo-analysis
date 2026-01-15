@@ -1,6 +1,6 @@
 import React, { useState, useEffect, Fragment, useRef } from 'react';
 import { Users, TrendingUp, TrendingDown, Minus, Building2, ArrowUpRight, ArrowDownRight, Calendar, RefreshCw, Upload, Grid as GridIcon, Activity, BarChart2 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, Legend, ResponsiveContainer, AreaChart, Area, Treemap } from 'recharts';
 import BrokerDetailModal from './BrokerDetailModal';
 import FileUploadPanel from './FileUploadPanel';
 import ADKChatPanel from './ADKChatPanel';
@@ -156,6 +156,18 @@ function BrokerSummaryPanel({ data, ticker, isLoading, onDataUpdate }) {
                 setTrendData(trendJson);
             }
 
+            // Fetch Intraday Flow (Smart Money vs Retail)
+            const intradayRes = await fetch(`${API_BASE_URL}/api/v1/analytics/intraday-flow/${tickerVal}?days=7`);
+            if (intradayRes.ok) {
+                const intradayJson = await intradayRes.json();
+                if (intradayJson && intradayJson.length > 0) {
+                    // Override trend data with richer intraday data if available
+                    setTrendData(intradayJson);
+                    // Add a flag to indicate this is intraday data
+                    intradayJson._isIntraday = true;
+                }
+            }
+
             // Fetch Heatmap
             const heatmapRes = await fetch(`${API_BASE_URL}/api/v1/analytics/heatmap/${tickerVal}?days=30`);
             if (heatmapRes.ok) {
@@ -179,7 +191,7 @@ function BrokerSummaryPanel({ data, ticker, isLoading, onDataUpdate }) {
     const isBusy = isLoading || internalLoading || isScraping;
 
 
-    const displayData = bandarData || data;
+    const displayData = bandarData?.summary || bandarData || data?.summary || data || {};
 
 
 
@@ -564,7 +576,7 @@ function BrokerSummaryPanel({ data, ticker, isLoading, onDataUpdate }) {
 
                 {/* MAIN VIEW TABS */}
                 <div className="flex space-x-1 mb-3 bg-white/5 p-1 rounded-lg">
-                    {['summary', 'trend', 'heatmap'].map((view) => (
+                    {['summary', 'trend', 'heatmap', 'treemap'].map((view) => (
                         <button
                             key={view}
                             onClick={() => setActiveView(view)}
@@ -576,12 +588,76 @@ function BrokerSummaryPanel({ data, ticker, isLoading, onDataUpdate }) {
                             {view === 'summary' && <GridIcon size={14} />}
                             {view === 'trend' && <Activity size={14} />}
                             {view === 'heatmap' && <BarChart2 size={14} />}
+                            {view === 'treemap' && <BarChart2 size={14} className="rotate-90" />}
                             <span className="capitalize">{view}</span>
                         </button>
                     ))}
                 </div>
 
-                {/* VIEW: SUMMARY (Everything below is wrapped) */}
+                {/* VIEW: TREND CHART */}
+                {activeView === 'trend' && (
+                    <div className="h-[300px] w-full p-2">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={trendData}>
+                                <defs>
+                                    <linearGradient id="colorForeign" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#4ade80" stopOpacity={0.3} />
+                                        <stop offset="95%" stopColor="#4ade80" stopOpacity={0} />
+                                    </linearGradient>
+                                    <linearGradient id="colorRetail" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#60a5fa" stopOpacity={0.3} />
+                                        <stop offset="95%" stopColor="#60a5fa" stopOpacity={0} />
+                                    </linearGradient>
+                                    <linearGradient id="colorInst" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#c084fc" stopOpacity={0.3} />
+                                        <stop offset="95%" stopColor="#c084fc" stopOpacity={0} />
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                                <XAxis
+                                    dataKey="date"
+                                    stroke="#666"
+                                    tick={{ fill: '#888', fontSize: 10 }}
+                                    tickFormatter={(str) => {
+                                        if (!str) return "";
+                                        const parts = str.split(' ');
+                                        return parts.length > 1 ? parts[1] : str; // Show time if intraday
+                                    }}
+                                />
+                                <YAxis yAxisId="left" stroke="#888" fontSize={10} tickFormatter={(val) => (val / 1e9).toFixed(1) + 'B'} />
+                                <YAxis yAxisId="right" orientation="right" domain={['auto', 'auto']} stroke="#666" fontSize={10} />
+                                <ChartTooltip
+                                    contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151' }}
+                                    itemStyle={{ fontSize: 12 }}
+                                    formatter={(val, name) => [
+                                        formatValue(val),
+                                        name === 'price' ? 'Price' :
+                                            name === 'foreign_flow' ? 'Foreign Flow' :
+                                                name === 'retail_flow' ? 'Retail Flow' :
+                                                    name === 'inst_flow' ? 'Inst Flow' : name
+                                    ]}
+                                    labelFormatter={(label) => label}
+                                />
+                                <Legend />
+
+                                {trendData._isIntraday ? (
+                                    <>
+                                        <Area yAxisId="left" type="monotone" dataKey="foreign_flow" stroke="#4ade80" fillOpacity={1} fill="url(#colorForeign)" name="Foreign" />
+                                        <Area yAxisId="left" type="monotone" dataKey="retail_flow" stroke="#60a5fa" fillOpacity={1} fill="url(#colorRetail)" name="Retail" />
+                                        <Area yAxisId="left" type="monotone" dataKey="inst_flow" stroke="#c084fc" fillOpacity={1} fill="url(#colorInst)" name="Institution" />
+                                    </>
+                                ) : (
+                                    <Area yAxisId="left" type="monotone" dataKey="cumulative_flow" stroke="#4ade80" fillOpacity={1} fill="url(#colorForeign)" name="Net Foreign Flow" />
+                                )}
+
+                                <Line yAxisId="right" type="monotone" dataKey="price" stroke="#ffffff" dot={false} strokeWidth={1} name="Price" />
+                                <Line yAxisId="right" type="monotone" dataKey="close" stroke="#ffffff" dot={false} strokeWidth={1} name="Price" />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
+                )}
+
+                {/* VIEW: HEATMAP (Placeholder) */}
                 {
                     activeView === 'summary' && (
                         <>
@@ -691,6 +767,23 @@ function BrokerSummaryPanel({ data, ticker, isLoading, onDataUpdate }) {
                                                     displayData.concentration_ratio > 30 ? 'Moderate concentration' : 'Low concentration - Mixed activity'}
                                             </div>
                                         </div>
+
+
+                                        {/* HHI Index (New) */}
+                                        {displayData.hhi && (
+                                            <div className="mt-4 pt-3 border-t border-white/10">
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <span className="text-xs text-gray-400">HHI Index (Concentration)</span>
+                                                    <span className={`text-sm font-semibold ${displayData.hhi.hhi_buy > 2500 ? 'text-brand-accent' : displayData.hhi.hhi_buy > 1500 ? 'text-yellow-400' : 'text-green-400'}`}>
+                                                        {displayData.hhi.hhi_buy?.toFixed(0)}
+                                                    </span>
+                                                </div>
+                                                <div className="text-[10px] text-gray-500">
+                                                    {displayData.hhi.interpretation === 'HIGHLY_CONCENTRATED' ? 'Dominant Player (Bandar)' :
+                                                        displayData.hhi.interpretation === 'MODERATE' ? 'Moderate Concentration' : 'Fragmented (Retail)'}
+                                                </div>
+                                            </div>
+                                        )}
 
                                         {/* Phase 18: Graph Analysis (Broker Clusters) */}
                                         {displayData.graph_analysis && (
@@ -803,39 +896,7 @@ function BrokerSummaryPanel({ data, ticker, isLoading, onDataUpdate }) {
                 }
 
 
-                {/* VIEW: TREND */}
-                {
-                    activeView === 'trend' && (
-                        <div className="p-3 h-64">
-                            {isAnalyticsLoading ? (
-                                <div className="h-full flex items-center justify-center text-gray-500 animate-pulse">Loading Trend Data...</div>
-                            ) : trendData.length > 0 ? (
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <AreaChart data={trendData}>
-                                        <defs>
-                                            <linearGradient id="colorInst" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor="#4ade80" stopOpacity={0.3} />
-                                                <stop offset="95%" stopColor="#4ade80" stopOpacity={0} />
-                                            </linearGradient>
-                                        </defs>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
-                                        <XAxis dataKey="date" stroke="#666" fontSize={10} tickFormatter={(str) => str.slice(5)} />
-                                        <YAxis stroke="#666" fontSize={10} tickFormatter={(val) => (val / 1e9).toFixed(0) + 'B'} />
-                                        <ChartTooltip
-                                            contentStyle={{ backgroundColor: '#111', border: '1px solid #333', fontSize: '12px' }}
-                                            formatter={(val) => formatValue(val)}
-                                        />
-                                        <Legend />
-                                        <Area type="monotone" dataKey="cumulative_institutional" name="Inst Flow" stroke="#4ade80" fillOpacity={1} fill="url(#colorInst)" strokeWidth={2} />
-                                        <Line type="monotone" dataKey="cumulative_foreign" name="Foreign Flow" stroke="#facc15" strokeWidth={2} dot={false} />
-                                    </AreaChart>
-                                </ResponsiveContainer>
-                            ) : (
-                                <div className="h-full flex items-center justify-center text-gray-500">No Trend Data Available (Run Ingestion)</div>
-                            )}
-                        </div>
-                    )
-                }
+
 
                 {/* VIEW: HEATMAP */}
                 {
@@ -843,29 +904,158 @@ function BrokerSummaryPanel({ data, ticker, isLoading, onDataUpdate }) {
                         <div className="p-3 overflow-y-auto max-h-[400px]">
                             {isAnalyticsLoading ? (
                                 <div className="h-32 flex items-center justify-center text-gray-500 animate-pulse">Loading Heatmap...</div>
-                            ) : (
-                                <div className="grid grid-cols-4 gap-2">
-                                    {heatmapData.map((broker) => (
-                                        <div key={broker.broker_code} className={`p-2 rounded border flex flex-col items-center justify-center cursor-pointer hover:bg-white/5 transition-colors ${broker.net_value > 0
-                                            ? 'bg-green-500/10 border-green-500/30'
-                                            : 'bg-red-500/10 border-red-500/30'
-                                            }`} onClick={() => setSelectedBroker({ code: broker.broker_code, name: broker.broker_code })}>
-                                            <div className="font-bold text-sm text-white flex gap-1 items-center">
-                                                {broker.broker_code}
-                                                {broker.is_foreign && <span className="text-[8px] bg-yellow-500/20 text-yellow-500 px-1 rounded">F</span>}
-                                            </div>
-                                            <div className={`text-xs font-mono ${broker.net_value > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                                {formatValue(broker.net_value)}
-                                            </div>
-                                            <div className="text-[10px] text-gray-500 mt-1">{broker.type}</div>
-                                        </div>
-                                    ))}
+                            ) : heatmapData.length > 0 ? (
+                                <div className="space-y-2">
+                                    <div className="text-xs text-gray-400 mb-2">Daily Activity Intensity (Last {heatmapData.length} days)</div>
+                                    <div className="grid grid-cols-7 gap-1">
+                                        {heatmapData.map((day, idx) => {
+                                            const bgColor = day.activity_type === 'accumulation'
+                                                ? `rgba(74, 222, 128, ${Math.min(day.intensity * 0.4, 0.8)})`
+                                                : day.activity_type === 'distribution'
+                                                    ? `rgba(248, 113, 113, ${Math.min(day.intensity * 0.4, 0.8)})`
+                                                    : 'rgba(100, 100, 100, 0.2)';
+                                            return (
+                                                <div
+                                                    key={idx}
+                                                    className="p-2 rounded border border-white/10 cursor-pointer hover:border-white/30 transition-colors text-center"
+                                                    style={{ backgroundColor: bgColor }}
+                                                    title={`${day.date}: ${formatValue(day.net_foreign)} (${day.activity_type})`}
+                                                >
+                                                    <div className="text-[10px] text-gray-400">{day.date ? day.date.slice(5) : ''}</div>
+                                                    <div className={`text-xs font-mono ${day.net_foreign > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                                        {formatValue(day.net_foreign)}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="flex items-center gap-4 text-[10px] text-gray-500 mt-3 justify-center">
+                                        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-green-500/30 rounded"></span> Accumulation</span>
+                                        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-red-500/30 rounded"></span> Distribution</span>
+                                        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-gray-500/30 rounded"></span> Neutral</span>
+                                    </div>
                                 </div>
+                            ) : (
+                                <div className="h-32 flex items-center justify-center text-gray-500">No Heatmap Data Available</div>
                             )}
                         </div>
                     )
                 }
 
+
+                {/* VIEW: TREEMAP (Concentration) */}
+                {
+                    activeView === 'treemap' && (
+                        <div className="w-full" style={{ padding: '4px 8px' }}>
+                            {(() => {
+                                const allItems = [
+                                    ...(displayData.top_buyers || []).map((b, idx, arr) => {
+                                        const maxVal = Math.max(...arr.map(x => x.value || 0), 1);
+                                        const intensity = 0.4 + ((b.value || 0) / maxVal * 0.6);
+                                        return {
+                                            name: b.code || b.name,
+                                            size: b.value || 1,
+                                            fill: `rgb(${Math.round(30 * intensity)}, ${Math.round(100 + 150 * intensity)}, ${Math.round(50 * intensity)})`,
+                                            side: 'BUY',
+                                            rank: idx + 1,
+                                            volume: b.volume || 0,
+                                            value: b.value || 0
+                                        };
+                                    }),
+                                    ...(displayData.top_sellers || []).map((b, idx, arr) => {
+                                        const maxVal = Math.max(...arr.map(x => x.value || 0), 1);
+                                        const intensity = 0.4 + ((b.value || 0) / maxVal * 0.6);
+                                        return {
+                                            name: b.code || b.name,
+                                            size: b.value || 1,
+                                            fill: `rgb(${Math.round(100 + 150 * intensity)}, ${Math.round(30 * intensity)}, ${Math.round(30 * intensity)})`,
+                                            side: 'SELL',
+                                            rank: idx + 1,
+                                            volume: b.volume || 0,
+                                            value: b.value || 0
+                                        };
+                                    })
+                                ];
+
+                                if (allItems.length === 0) {
+                                    return (
+                                        <div className="h-96 flex items-center justify-center text-gray-500">
+                                            No Broker Data Available
+                                        </div>
+                                    );
+                                }
+
+                                return (
+                                    <>
+                                        <div style={{
+                                            width: '100%',
+                                            height: '500px',
+                                            overflow: 'visible'
+                                        }}>
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <Treemap
+                                                    data={allItems}
+                                                    dataKey="size"
+                                                    stroke="#0a0a0a"
+                                                    strokeWidth={0}
+                                                >
+                                                    <ChartTooltip
+                                                        content={({ active, payload }) => {
+                                                            if (active && payload && payload.length > 0) {
+                                                                const data = payload[0].payload;
+                                                                return (
+                                                                    <div className="bg-gray-900/95 border border-gray-600 rounded-lg shadow-xl p-3 text-sm backdrop-blur-sm">
+                                                                        <div className={`font-bold text-base mb-2 ${data.side === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>
+                                                                            {data.name} {data.side === 'BUY' ? '🟢' : '��'}
+                                                                        </div>
+                                                                        <div className="space-y-1 text-gray-300">
+                                                                            <div className="flex justify-between gap-4">
+                                                                                <span className="text-gray-500">Type:</span>
+                                                                                <span className={data.side === 'BUY' ? 'text-green-400' : 'text-red-400'}>
+                                                                                    {data.side === 'BUY' ? 'Buyer' : 'Seller'}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="flex justify-between gap-4">
+                                                                                <span className="text-gray-500">Value:</span>
+                                                                                <span className="font-semibold text-white">{formatValue(data.value)}</span>
+                                                                            </div>
+                                                                            {data.volume > 0 && (
+                                                                                <div className="flex justify-between gap-4">
+                                                                                    <span className="text-gray-500">Volume:</span>
+                                                                                    <span>{formatVolume(data.volume)} lot</span>
+                                                                                </div>
+                                                                            )}
+                                                                            <div className="flex justify-between gap-4">
+                                                                                <span className="text-gray-500">Rank:</span>
+                                                                                <span>#{data.rank}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            }
+                                                            return null;
+                                                        }}
+                                                    />
+                                                </Treemap>
+                                            </ResponsiveContainer>
+                                        </div>
+                                        <div className="flex justify-center gap-6 mt-2 text-xs">
+                                            <span className="flex items-center gap-2">
+                                                <div className="w-4 h-4 bg-green-600 rounded shadow"></div>
+                                                <span className="text-gray-400">Net Buyers</span>
+                                            </span>
+                                            <span className="flex items-center gap-2">
+                                                <div className="w-4 h-4 bg-red-600 rounded shadow"></div>
+                                                <span className="text-gray-400">Net Sellers</span>
+                                            </span>
+                                        </div>
+                                        <p className="text-gray-600 text-xs mt-1 text-center">Hover for details • Block size = transaction value</p>
+                                    </>
+                                );
+                            })()}
+                        </div>
+                    )
+                }
 
             </div>
             {/* Modal */}

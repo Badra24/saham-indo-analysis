@@ -43,7 +43,7 @@ export default function ADKChatPanel({ symbol = 'BBCA', onStatusChange }) {
                 if (data.enabled) {
                     setMessages([{
                         role: 'assistant',
-                        content: `👋 Halo! Saya Remora Commander, AI assistant untuk analisa saham Indonesia.\n\n🎯 Yang bisa saya bantu:\n• Analisa Order Flow (OBI, HAKA/HAKI, Iceberg)\n• Deteksi Smart Money (Bandarmologi)\n• Sinyal Looping Strategy\n• Kalkulasi position size (30-30-40)\n\nCoba tanya: "Analisa ${symbol} sekarang" atau "Hitung position size BBCA"`
+                        content: `👋 Halo! Saya Remora Commander, AI assistant untuk analisa saham Indonesia.\n\n🎯 Yang bisa saya bantu:\n• Analisa Order Flow (OBI, HAKA/HAKI, Iceberg)\n• Deteksi Smart Money (Bandarmologi)\n• Sinyal Looping Strategy\n• Kalkulasi position size (30-30-40)\n\nCoba tanya: "Analisa ${symbol} sekarang" atau "Hitung position size ${symbol}"`
                     }]);
                 }
             } else {

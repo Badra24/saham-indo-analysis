@@ -1,35 +1,26 @@
 """
-IDX Broker Aggregator - Wrapper for GoAPI Broker Summary
+IDX Broker Aggregator - Wrapper for Stockbit Broker Summary
 
-IMPORTANT DISCOVERY:
-The IDX website does NOT provide a public API for per-stock broker breakdown!
-- /TradingSummary/GetBrokerSummary only returns TOTAL per broker (not per stock)
-- There is no endpoint like /GetBrokerSummaryByStock
-
-Therefore, we use GoAPI as the primary (and only) source for stock-specific 
-broker data (who's buying/selling BBCA, etc.)
-
-This module is a simple wrapper around goapi_client for compatibility.
+MIGRATION NOTE:
+Formerly wrapped GoAPI. Now wraps StockbitClient (Free & More Accurate).
 """
 
 from typing import Optional, Dict, List
-from datetime import date, timedelta
+import logging
+from app.services.stockbit_client import stockbit_client
 
-from app.services.goapi_client import get_goapi_client
+logger = logging.getLogger(__name__)
 
-
-# ==================== SIMPLE WRAPPER ====================
+# ==================== STOCKBIT WRAPPER ====================
 
 class IDXBrokerAggregatorFast:
     """
-    Wrapper for GoAPI broker summary.
-    
-    Note: Despite the name, this uses GoAPI because IDX doesn't 
-    provide per-stock broker breakdown via public API.
+    Wrapper for Stockbit broker summary.
+    Replaces the old GoAPI implementation.
     """
     
     def __init__(self):
-        self._goapi = get_goapi_client()
+        self._client = stockbit_client
     
     async def get_broker_summary_for_stock(
         self,
@@ -38,49 +29,180 @@ class IDXBrokerAggregatorFast:
         use_cache: bool = True
     ) -> Dict:
         """
-        Get broker summary for a specific stock.
-        
-        This directly uses GoAPI's get_broker_summary method.
+        Get broker summary for a specific stock via Stockbit.
         
         Args:
             stock_code: Stock ticker (e.g., 'BBCA')
-            date_str: Date in YYYYMMDD format (optional)
-            use_cache: Whether to use cached results
+            date_str: Ignored for now (Stockbit endpoint is real-time/daily)
+            use_cache: Ignored
         
         Returns:
-            Broker summary with top buyers, sellers, net flow, status
+            Broker summary in standardized format.
         """
         stock_code = stock_code.upper().replace(".JK", "")
         
-        # Format date for GoAPI (YYYY-MM-DD)
-        if date_str:
-            # Convert YYYYMMDD to YYYY-MM-DD
-            formatted_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
-        else:
-            # Use today or last trading day
-            today = date.today()
-            if today.weekday() >= 5:  # Weekend
-                diff = today.weekday() - 4
-                today = today - timedelta(days=diff)
-            formatted_date = today.strftime("%Y-%m-%d")
+        # print(f"[BROKER-AGG] Fetching broker summary for {stock_code} via Stockbit...")
         
-        print(f"[BROKER-AGG] Fetching broker summary for {stock_code} ({formatted_date}) via GoAPI...")
+        try:
+            # Fetch from Stockbit
+            data = await self._client.get_bandarmology(stock_code)
+            
+            if not data:
+                return self._empty_response(stock_code)
+                
+            # Map Stockbit response to our standardized APP format
+            # Stockbit returns: top_buyers list with {code, val}
+            
+            top_buyers = []
+            for b in data.get('top_buyers', []):
+                top_buyers.append({
+                    "code": b['code'],
+                    "value": b['val'],
+                    "volume": 0 # Stockbit summary above doesn't give volume, only val. Acceptable.
+                })
+
+            top_sellers = []
+            for s in data.get('top_sellers', []):
+                top_sellers.append({
+                    "code": s['code'],
+                    "value": abs(s['val']), # Stockbit sends sellers as negative value in some contexts, but let's ensure positive for "value" field
+                    "volume": 0
+                })
+                
+            # Calculate Net Flow (Bandar Volume)
+            # We use the top1_amount provided by Stockbit as a proxy for main flow
+            net_flow = data.get('total_buyer', 0) # This might be count.
+            # actually data['top1_amount'] is the net value of Top 1. 
+            # But let's use the sum of Top 5 Net for a broader view if needed.
+            # For compatibility, let's trust Stockbit's "bandar detector" status more than raw flow numbers.
+            
+            return {
+                "symbol": stock_code,
+                "status": data.get('avg5_status', 'NEUTRAL').upper().replace(" ", "_"), # Big Acc -> BIG_ACC
+                "net_flow": data.get('net_value', data.get('top1_amount', 0)), # Use calculated net val if available
+                "buy_value": data.get('buy_value', 0),
+                "sell_value": data.get('sell_value', 0),
+                "top_buyers": top_buyers[:5], # We only show top 5 in UI summary usually
+                "top_sellers": top_sellers[:5], 
+                "source": "stockbit",
+                "is_demo": False,
+                "timestamp": date_str
+            }
+            
+        except Exception as e:
+            logger.error(f"Stockbit Aggregator failed for {stock_code}: {e}")
+            return self._empty_response(stock_code)
+    
+    async def get_broker_history(self, stock_code: str, broker_code: str, days: int = 30) -> Dict:
+        """
+        Get broker activity for the last N days using Stockbit's from/to parameters.
         
-        # Get data from GoAPI
-        result = self._goapi.get_broker_summary(stock_code, formatted_date)
+        OPTIMIZED: Uses SINGLE API call instead of 30 parallel calls.
+        Stockbit automatically aggregates data for the date range.
+        """
+        from datetime import datetime, timedelta
         
-        if result.get("is_demo"):
-            print(f"[BROKER-AGG] ⚠️ Daily Limit Reached for {stock_code}. Please upload Broker Summary file to calculate.")
-        else:
-            print(f"[BROKER-AGG] ✅ Got real data for {stock_code}")
+        stock_code = stock_code.upper().replace(".JK", "")
+        broker_code = broker_code.upper()
         
-        # Add source info
-        result["source"] = "goapi"
+        # Limit days
+        days = min(max(days, 5), 60)
         
-        return result
+        # Calculate date range
+        today = datetime.now()
+        start_date = (today - timedelta(days=days)).strftime("%Y-%m-%d")
+        end_date = today.strftime("%Y-%m-%d")
+        
+        try:
+            # SINGLE API CALL for cumulative data
+            data = await self._client.get_bandarmology(
+                stock_code, 
+                start_date=start_date, 
+                end_date=end_date
+            )
+            
+            if not data:
+                return self._empty_broker_history(stock_code, broker_code, days)
+            
+            # Find broker in top_buyers or top_sellers
+            broker_buy_val = 0
+            broker_sell_val = 0
+            broker_found = False
+            
+            for b in data.get('top_buyers', []):
+                if b['code'] == broker_code:
+                    broker_buy_val = float(b['val'])
+                    broker_found = True
+                    break
+            
+            for s in data.get('top_sellers', []):
+                if s['code'] == broker_code:
+                    broker_sell_val = abs(float(s['val']))
+                    broker_found = True
+                    break
+            
+            net_total = broker_buy_val - broker_sell_val
+            
+            # Determine Trend
+            if net_total > 1_000_000_000:
+                trend = "AKUMULASI_AKTIF"
+            elif net_total < -1_000_000_000:
+                trend = "DISTRIBUSI_AKTIF"
+            else:
+                trend = "NETRAL"
+            
+            return {
+                "broker_code": broker_code,
+                "broker_name": broker_code,
+                "broker_type": "UNKNOWN",
+                "is_foreign": broker_code in ["CC", "ML", "YP", "CS", "DB", "GS", "JP", "MS", "UB"],
+                "symbol": stock_code,
+                "period": f"{start_date} to {end_date}",
+                "days_analyzed": days,
+                "active_days": days if broker_found else 0,
+                "running_buy": broker_buy_val,
+                "running_sell": broker_sell_val,
+                "running_position": net_total,
+                "trend": trend,
+                "source": "stockbit",
+                "is_demo": False,
+                # Additional context from overall market
+                "market_buy_value": data.get('buy_value', 0),
+                "market_sell_value": data.get('sell_value', 0),
+                "market_net_value": data.get('net_value', 0),
+                "top1_status": data.get('top1_status', 'NEUTRAL'),
+                "avg5_status": data.get('avg5_status', 'NEUTRAL'),
+            }
+            
+        except Exception as e:
+            logger.error(f"Broker history fetch failed for {broker_code}@{stock_code}: {e}")
+            return self._empty_broker_history(stock_code, broker_code, days)
+    
+    def _empty_broker_history(self, stock_code: str, broker_code: str, days: int) -> Dict:
+        return {
+            "broker_code": broker_code,
+            "symbol": stock_code,
+            "days_analyzed": days,
+            "running_buy": 0,
+            "running_sell": 0,
+            "running_position": 0,
+            "trend": "DATA_UNAVAILABLE",
+            "source": "stockbit_error",
+            "is_demo": False
+        }
+    
+    def _empty_response(self, symbol: str) -> Dict:
+        return {
+            "symbol": symbol,
+            "status": "DATA_UNAVAILABLE",
+            "net_flow": 0,
+            "top_buyers": [],
+            "top_sellers": [],
+            "source": "stockbit_error",
+            "is_demo": False
+        }
     
     async def close(self):
-        """No resources to cleanup for GoAPI wrapper"""
         pass
 
 
@@ -100,10 +222,20 @@ def get_broker_aggregator() -> IDXBrokerAggregatorFast:
 if __name__ == "__main__":
     import asyncio
     import time
+    import sys
+    import os
+    
+    # Add project root to sys.path
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
+    
+    from dotenv import load_dotenv
+    
+    # Load Env for test
+    load_dotenv("backend/.env")
     
     async def test():
         print("=" * 60)
-        print("BROKER AGGREGATOR TEST (GoAPI Backend)")
+        print("BROKER AGGREGATOR TEST (Stockbit Backend)")
         print("=" * 60)
         print()
         
@@ -117,7 +249,7 @@ if __name__ == "__main__":
         print(f"Result for BBCA:")
         print(f"  Time: {elapsed:.2f}s")
         print(f"  Status: {result.get('status')}")
-        print(f"  Is Demo: {result.get('is_demo')}")
+        print(f"  Source: {result.get('source')}")
         print(f"  Net Flow: {result.get('net_flow', 0):,.0f}")
         
         if result.get('top_buyers'):
@@ -125,12 +257,7 @@ if __name__ == "__main__":
             for i, buyer in enumerate(result['top_buyers'][:3]):
                 print(f"    {i+1}. {buyer.get('code', 'N/A')} - {buyer.get('value', 0):,.0f}")
         
-        if result.get('top_sellers'):
-            print(f"  Top Sellers: {len(result['top_sellers'])}")
-        
         print()
         print("=" * 60)
-        
-        await agg.close()
     
     asyncio.run(test())

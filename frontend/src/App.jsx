@@ -7,8 +7,10 @@ import { BrokerSummaryPanel } from './components/BrokerSummaryPanel';
 import ADKChatPanel from './components/ADKChatPanel';
 import ConvictionPanel from './components/ConvictionPanel';
 import ScannerPanel from './components/ScannerPanel';
+import FinancialReportPanel from './components/FinancialReportPanel';
+import SettingsPanel from './components/SettingsPanel';
 
-import { Activity, ShieldCheck, TrendingUp, BarChart3 } from 'lucide-react';
+import { Activity, ShieldCheck, TrendingUp, BarChart3, Search, Settings } from 'lucide-react';
 import { API_BASE_URL, WS_BASE_URL } from './config';
 
 function App() {
@@ -21,6 +23,12 @@ function App() {
 
   // Panel state (like crypto-trades)
   const [activePanel, setActivePanel] = useState('ai');
+
+  // Scanner modal state
+  const [showScanner, setShowScanner] = useState(false);
+
+  // Settings modal state
+  const [showSettings, setShowSettings] = useState(false);
 
   // Remora-Quant features
   const [orderFlow, setOrderFlow] = useState(null);
@@ -56,6 +64,7 @@ function App() {
     vwap: false,
     obv: false,
     volumeProfile: false,
+    bubbleOverlay: false,
     // Ichimoku Cloud
     ichimokuCloud: false,
     ichimokuTenkan: false,
@@ -352,15 +361,7 @@ function App() {
               >
                 🎯 Score
               </button>
-              <button
-                onClick={() => setActivePanel('scanner')}
-                className={`py-1.5 px-3 rounded-md text-xs font-medium transition-all ${activePanel === 'scanner'
-                  ? 'bg-brand-accent text-white'
-                  : 'text-gray-400 hover:text-white'
-                  }`}
-              >
-                🔍 Scan
-              </button>
+
               <button
                 onClick={() => setActivePanel('indicators')}
                 className={`py-1.5 px-3 rounded-md text-xs font-medium transition-all ${activePanel === 'indicators'
@@ -371,6 +372,15 @@ function App() {
                 📉 Ind
               </button>
             </div>
+
+            {/* Settings Button */}
+            <button
+              onClick={() => setShowSettings(true)}
+              className="p-2 rounded-lg bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700 transition-all"
+              title="Settings"
+            >
+              <Settings size={18} />
+            </button>
           </div>
         </div>
       </header>
@@ -428,9 +438,7 @@ function App() {
                 bandarmologyData={consensus?.bandarmology}
               />
             )}
-            {activePanel === 'scanner' && (
-              <ScannerPanel onSelectStock={handleStockSelect} />
-            )}
+
             {activePanel === 'indicators' && (
               <IndicatorPanel indicators={indicators} onToggle={handleIndicatorToggle} />
             )}
@@ -439,15 +447,47 @@ function App() {
 
         {/* Bottom Row: Analysis Panels (Full Width) */}
         <div className="col-span-12 space-y-4">
-          {/* Row 2: Broker Summary (Full Width - Stockbit Style) */}
+          {/* Financial Report Panel (Stockbit Data) */}
+          <FinancialReportPanel ticker={activeTicker} />
+
+          {/* Broker Summary (Full Width - Stockbit Style) */}
           <BrokerSummaryPanel
             data={consensus?.bandarmology}
             ticker={activeTicker}
             isLoading={loading}
             onDataUpdate={refreshAnalysis}
           />
+
+          {/* Scan Stocks Button */}
+          <button
+            onClick={() => setShowScanner(true)}
+            className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-600 
+                       hover:from-emerald-600 hover:to-teal-700 
+                       rounded-xl font-bold text-lg flex items-center justify-center gap-3
+                       transition-all duration-200 shadow-lg hover:shadow-emerald-500/20"
+          >
+            <Search size={20} />
+            Scan Stocks (AI-Powered Scanner)
+          </button>
         </div>
       </div>
+
+      {/* Scanner Modal Overlay */}
+      {showScanner && (
+        <ScannerPanel
+          onSelectStock={(ticker) => {
+            handleStockSelect(ticker);
+            setShowScanner(false);
+          }}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
+
+      {/* Settings Modal */}
+      <SettingsPanel
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+      />
     </div>
   );
 }

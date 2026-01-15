@@ -12,6 +12,53 @@ from google.adk.tools import FunctionTool
 import yfinance as yf
 
 
+def _get_ml_interpretation(prediction: Dict, features: Dict) -> str:
+    """
+    Generate human-readable interpretation of ML prediction for LLM context.
+    This helps the LLM agent understand and communicate ML results.
+    """
+    pattern = prediction.get('pattern', 'NEUTRAL')
+    prob = prediction.get('accumulation_probability', 0.5)
+    conf = prediction.get('confidence', 0.5)
+    direction = prediction.get('price_direction', 'FLAT')
+    hhi = features.get('hhi', 0)
+    foreign = features.get('foreign_flow_ratio', 0)
+    
+    parts = []
+    
+    # Pattern interpretation
+    if pattern == 'ACCUMULATION':
+        parts.append(f"ML Model detects ACCUMULATION pattern ({prob:.0%} probability)")
+        parts.append(f"Price direction prediction: {direction}")
+    elif pattern == 'DISTRIBUTION':
+        parts.append(f"ML Model detects DISTRIBUTION pattern ({1-prob:.0%} probability)")
+        parts.append(f"Price direction prediction: {direction}")
+    else:
+        parts.append("ML Model shows NEUTRAL - no clear accumulation/distribution")
+    
+    # Confidence level
+    if conf >= 0.8:
+        parts.append(f"Confidence: HIGH ({conf:.0%})")
+    elif conf >= 0.6:
+        parts.append(f"Confidence: MODERATE ({conf:.0%})")
+    else:
+        parts.append(f"Confidence: LOW ({conf:.0%})")
+    
+    # Key feature insights
+    insights = []
+    if hhi > 2500:
+        insights.append("HHI indicates highly concentrated trading (Bandar dominant)")
+    elif hhi > 1500:
+        insights.append("HHI shows moderate concentration")
+    
+    if foreign > 0.3:
+        insights.append(f"High foreign participation ({foreign:.0%})")
+    
+    if insights:
+        parts.append("Key Insights: " + "; ".join(insights))
+    
+    return " | ".join(parts)
+
 def _get_full_analysis_data_sync(symbol: str) -> Dict[str, Any]:
     """
     Synchronous implementation of full analysis data fetcher.
@@ -89,30 +136,34 @@ def _get_full_analysis_data_sync(symbol: str) -> Dict[str, Any]:
         # PHASE 2: BANDARMOLOGY ANALYSIS (HYBRID DB + GoAPI)
         # ========================================
         try:
-            from app.services.database_service import db_service
-            from datetime import date
+            from app.services.idx_broker_aggregator import get_broker_aggregator
             
-            # 1. Try DB first (Uploaded / Cached data)
+            # Direct fetch from Stockbit (no DuckDB)
             raw_symbol = formatted_symbol.replace(".JK", "")
-            # Try today, then recent history if needed
-            db_data = db_service.get_broker_summary_by_date(raw_symbol, date.today().isoformat())
+            aggregator = get_broker_aggregator()
             
-            bandar_result = None
-            data_source = "UNKNOWN"
+            # Using sync wrapper for async call in non-async context
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
             
-            if db_data:
-                bandar_result = db_data
-                data_source = f"DATABASE ({db_data.get('source', 'upload')})"
-                # DB fields might map slightly differently, ensure compatibility
-                if 'status' not in bandar_result:
-                    bandar_result['status'] = 'NEUTRAL'
-                    
-            # 2. If no DB data, try GoAPI
+            if loop and loop.is_running():
+                # If event loop is running, create task
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    bandar_result = pool.submit(
+                        asyncio.run, 
+                        aggregator.get_broker_summary_for_stock(raw_symbol)
+                    ).result()
+            else:
+                bandar_result = asyncio.run(aggregator.get_broker_summary_for_stock(raw_symbol))
+            
+            data_source = "STOCKBIT_REALTIME" if bandar_result and bandar_result.get('source') == 'stockbit' else "FALLBACK"
+            
             if not bandar_result:
-                from app.services.goapi_client import get_goapi_client
-                goapi_client = get_goapi_client()
-                bandar_result = goapi_client.get_broker_summary(raw_symbol)
-                data_source = "DEMO" if bandar_result.get('is_demo', True) else "GOAPI_REAL"
+                bandar_result = {'status': 'NEUTRAL', 'is_demo': False}
             
             # Extract smart money detection from analysis
             smart_money_detected = (
@@ -259,7 +310,7 @@ def _get_full_analysis_data_sync(symbol: str) -> Dict[str, Any]:
             uploaded_broker = _uploaded_broker_data.get(formatted_symbol)
             uploaded_financial = _uploaded_financial_data.get(formatted_symbol)
             
-            # Hybrid Fallback: Check DuckDB if cache is empty
+            # Hybrid Fallback: Use Stockbit for broker, DuckDB only for financial (user uploads)
             from app.services.database_service import db_service
             from app.models.file_models import BrokerSummaryData, FinancialReportData, BrokerType, BrokerEntry
             from datetime import date
@@ -268,44 +319,78 @@ def _get_full_analysis_data_sync(symbol: str) -> Dict[str, Any]:
             
             if not uploaded_broker:
                 try:
-                    db_broker = db_service.get_broker_summary_by_date(non_jk_symbol, date.today().isoformat())
-                    if db_broker:
-                        print(f"[Orchestrator] Found persistent broker data in DuckDB for {formatted_symbol}")
-                        # Reconstruct BrokerSummaryData from DB dict
+                    # Use Stockbit directly instead of DuckDB
+                    from app.services.idx_broker_aggregator import get_broker_aggregator
+                    aggregator = get_broker_aggregator()
+                    
+                    import asyncio
+                    stockbit_result = asyncio.run(aggregator.get_broker_summary_for_stock(non_jk_symbol))
+                    
+                    if stockbit_result and stockbit_result.get("source") == "stockbit":
+                        print(f"[Orchestrator] Got real-time Stockbit data for {formatted_symbol}")
                         top_buyers = [
-                            BrokerEntry(broker_code=b['code'], buy_value=b['value'], buy_volume=b['volume'], broker_type=BrokerType.UNKNOWN, is_foreign=b.get('is_foreign', False)) 
-                            for b in db_broker.get("top_buyers", [])
+                            BrokerEntry(broker_code=b['code'], buy_value=b['value'], buy_volume=b.get('volume', 0), broker_type=BrokerType.UNKNOWN, is_foreign=b['code'] in ["CC", "ML", "YP", "CS", "DB", "GS", "JP", "MS", "UB"]) 
+                            for b in stockbit_result.get("top_buyers", [])
                         ]
                         top_sellers = [
-                            BrokerEntry(broker_code=s['code'], sell_value=s['value'], sell_volume=s['volume'], broker_type=BrokerType.UNKNOWN, is_foreign=s.get('is_foreign', False)) 
-                            for s in db_broker.get("top_sellers", [])
+                            BrokerEntry(broker_code=s['code'], sell_value=s['value'], sell_volume=s.get('volume', 0), broker_type=BrokerType.UNKNOWN, is_foreign=s['code'] in ["CC", "ML", "YP", "CS", "DB", "GS", "JP", "MS", "UB"]) 
+                            for s in stockbit_result.get("top_sellers", [])
                         ]
                         
                         uploaded_broker = BrokerSummaryData(
                             ticker=formatted_symbol,
                             date=date.today().isoformat(),
-                            source=f"db_{db_broker.get('source', 'unknown')}",
+                            source="stockbit_realtime",
                             top_buyers=top_buyers,
                             top_sellers=top_sellers,
-                            bcr=float(db_broker.get("concentration_ratio", 0) or 0),
-                            net_foreign_flow=float(db_broker.get("foreign_net_flow", 0) or 0),
+                            bcr=0.0,
+                            net_foreign_flow=float(stockbit_result.get("net_flow", 0) or 0),
                             foreign_flow_pct=0,
-                            total_buy=float(db_broker.get("buy_value", 0) or 0),
-                            total_sell=float(db_broker.get("sell_value", 0) or 0),
-                            total_transaction_value=float(db_broker.get("buy_value", 0) or 0) + float(db_broker.get("sell_value", 0) or 0),
-                            phase=db_broker.get("status", "NEUTRAL")
+                            total_buy=float(stockbit_result.get("buy_value", 0) or 0),
+                            total_sell=float(stockbit_result.get("sell_value", 0) or 0),
+                            total_transaction_value=float(stockbit_result.get("buy_value", 0) or 0) + float(stockbit_result.get("sell_value", 0) or 0),
+                            phase=stockbit_result.get("status", "NEUTRAL")
                         )
                 except Exception as e:
-                    print(f"[Orchestrator] Broker DB Fallback failed: {e}")
+                    print(f"[Orchestrator] Stockbit fallback failed: {e}")
             
             if not uploaded_financial:
+                # TRY STOCKBIT FIRST for financial data
                 try:
-                    db_fin = db_service.get_financial_report(non_jk_symbol)
-                    if db_fin:
-                        print(f"[Orchestrator] Found persistent financial data in DuckDB for {formatted_symbol}")
-                        uploaded_financial = FinancialReportData(**db_fin)
+                    from app.services.stockbit_client import stockbit_client
+                    # Use sync wrapper for async call
+                    fin_data = asyncio.run(stockbit_client.get_financial_data(non_jk_symbol))
+                    if fin_data and fin_data.get('metrics'):
+                        print(f"[Orchestrator] Found financial data from Stockbit for {formatted_symbol}")
+                        metrics = fin_data['metrics']
+                        # Map Stockbit metrics to FinancialReportData format
+                        uploaded_financial = FinancialReportData(
+                            ticker=non_jk_symbol,
+                            revenue=metrics.get('revenue', {}).get('value', 0) or 0,
+                            net_income=0,  # Not directly available
+                            total_equity=0,  # Calculate from debt_to_equity if needed
+                            total_assets=0,
+                            total_liabilities=0,
+                            current_assets=0,
+                            current_liabilities=0,
+                            operating_cash_flow=0,
+                            eps=0,
+                            dividend_yield=metrics.get('dividend_yield', {}).get('value', 0) or 0,
+                            roe=0,
+                            debt_to_equity=metrics.get('debt_to_equity', {}).get('value', 0) or 0,
+                        )
                 except Exception as e:
-                    print(f"[Orchestrator] Financial DB Fallback failed: {e}")
+                    print(f"[Orchestrator] Stockbit financial fetch failed: {e}")
+                
+                # FALLBACK to DuckDB only if Stockbit failed
+                if not uploaded_financial:
+                    try:
+                        db_fin = db_service.get_financial_report(non_jk_symbol)
+                        if db_fin:
+                            print(f"[Orchestrator] Found persistent financial data in DuckDB for {formatted_symbol}")
+                            uploaded_financial = FinancialReportData(**db_fin)
+                    except Exception as e:
+                        print(f"[Orchestrator] Financial DB Fallback failed: {e}")
             
             alpha_v_score = calculate_alpha_v_score(
                 ticker=formatted_symbol,
@@ -330,9 +415,136 @@ def _get_full_analysis_data_sync(symbol: str) -> Dict[str, Any]:
                 "grade": "N/A",
                 "error": str(av_err)
             }
-            
 
+        # ========================================
+        # PHASE 7: ML PREDICTION (Trained Model)
+        # ========================================
+        try:
+            from app.ml.inference.predictor import get_predictor
+            from app.ml.features.broker_features import BrokerFeatureExtractor
+            
+            # Prepare broker data for ML
+            ml_broker_data = {
+                'top_buyers': phase_2_bandarmology.get('top_buyers', []),
+                'top_sellers': phase_2_bandarmology.get('top_sellers', [])
+            }
+            
+            # Convert to expected format if needed (list of dicts with code/value)
+            if isinstance(ml_broker_data['top_buyers'], list) and len(ml_broker_data['top_buyers']) > 0:
+                if isinstance(ml_broker_data['top_buyers'][0], str):
+                    # Just broker codes, no values - use bandarmology result directly
+                    ml_broker_data = bandar_result if 'bandar_result' in locals() else ml_broker_data
+            
+            predictor = get_predictor()
+            ml_prediction = predictor.predict(ml_broker_data)
+            
+            # Extract feature analysis for LLM interpretation
+            extractor = BrokerFeatureExtractor()
+            ml_features = extractor.extract(ml_broker_data)
+            
+            phase_7_ml_prediction = {
+                "accumulation_probability": ml_prediction.get('accumulation_probability', 0.5),
+                "pattern": ml_prediction.get('pattern', 'NEUTRAL'),
+                "price_direction": ml_prediction.get('price_direction', 'FLAT'),
+                "confidence": ml_prediction.get('confidence', 0.5),
+                "model_version": ml_prediction.get('model_version', 'unknown'),
+                "features": {
+                    "hhi": ml_features.get('hhi', 0),
+                    "bcr": ml_features.get('bcr', 1.0),
+                    "retail_flow_ratio": ml_features.get('retail_flow_ratio', 0.5),
+                    "foreign_flow_ratio": ml_features.get('foreign_flow_ratio', 0),
+                    "top3_dominance": ml_features.get('top3_dominance', 0.33),
+                    "buy_sell_imbalance": ml_features.get('buy_sell_imbalance', 0)
+                },
+                "interpretation": _get_ml_interpretation(ml_prediction, ml_features)
+            }
+        except Exception as ml_err:
+            print(f"ML Prediction failed: {ml_err}")
+            phase_7_ml_prediction = {
+                "accumulation_probability": 0.5,
+                "pattern": "UNKNOWN",
+                "error": str(ml_err),
+                "note": "ML prediction unavailable, using qualitative analysis only"
+            }
         
+        # ========================================
+        # PHASE 8: ADVANCED GAP ANALYSIS (WYCKOFF & ALERTS)
+        # ========================================
+        try:
+            from app.services.wyckoff_detector import get_wyckoff_detector, WyckoffPattern
+            from app.services.alert_engine import get_alert_engine, AlertEngine
+            from app.services.bandarmology import bandarmology_engine
+            
+            # 1. Wyckoff Pattern Detection
+            detector = get_wyckoff_detector()
+            price_history = hist.to_dict('records') if not hist.empty else []
+            wyckoff_result = detector.detect(price_history, bandar_result)
+            
+            # 2. AQS & Churn Analysis
+            aqs_data = bandarmology_engine.calculate_aqs(
+                broker_history=[],  # TODO: Need history from DB
+                price_history=hist['Close'].tolist() if not hist.empty else [],
+                current_broker_data=bandar_result
+            )
+            
+            churn_data = bandarmology_engine.calculate_churn_ratio(
+                total_volume=phase_1_orderflow.get('obi', 0), # Using OBI as proxy if total volume not available
+                net_ownership_change=phase_2_bandarmology.get('institutional_net_flow', 0)
+            )
+
+            # 3. HHI & Bandar VWAP
+            hhi_data = bandarmology_engine.calculate_hhi(bandar_result)
+            bandar_vwap_data = bandarmology_engine.calculate_bandar_vwap(bandar_result)
+            
+            phase_8_gap_analysis = {
+                "wyckoff": {
+                    "pattern": wyckoff_result.pattern.value if wyckoff_result.pattern else None,
+                    "confidence": wyckoff_result.confidence,
+                    "action": wyckoff_result.action,
+                    "details": wyckoff_result.details
+                },
+                "aqs": aqs_data,
+                "churn": churn_data,
+                "hhi": hhi_data,
+                "bandar_vwap": bandar_vwap_data
+            }
+            
+            # 4. Alert Triggering (Fire & Forget)
+            alert_engine = get_alert_engine()
+            
+            # Spring Alert
+            if wyckoff_result.pattern == WyckoffPattern.SPRING and wyckoff_result.confidence == "HIGH":
+                alert = AlertEngine.create_spring_alert(
+                    symbol=formatted_symbol,
+                    support_level=wyckoff_result.level,
+                    current_price=current_price,
+                    top_buyer=wyckoff_result.details.get('top_buyer', 'Unknown'),
+                    buy_value=wyckoff_result.details.get('buy_value', 0)
+                )
+                alert_engine.send_alert_sync(alert)
+                print(f"[Orchestrator] 🚨 SENT SPRING ALERT: {formatted_symbol}")
+                
+            # UTAD Alert
+            elif wyckoff_result.pattern == WyckoffPattern.UTAD and wyckoff_result.confidence == "HIGH":
+                alert = AlertEngine.create_utad_alert(
+                    symbol=formatted_symbol,
+                    resistance_level=wyckoff_result.level,
+                    current_price=current_price,
+                    top_seller=wyckoff_result.details.get('top_seller', 'Unknown'),
+                    sell_value=wyckoff_result.details.get('sell_value', 0)
+                )
+                alert_engine.send_alert_sync(alert)
+                print(f"[Orchestrator] 🚨 SENT UTAD ALERT: {formatted_symbol}")
+                
+        except Exception as gap_err:
+            print(f"Gap Analysis failed: {gap_err}")
+            phase_8_gap_analysis = {
+                "error": str(gap_err),
+                "wyckoff": {"pattern": "ERROR"},
+                "aqs": {"grade": "N/A"},
+                "churn": {"level": "UNKNOWN"}
+            }
+
         # ========================================
         # COMPILE RESULT
         # ========================================
@@ -348,6 +560,8 @@ def _get_full_analysis_data_sync(symbol: str) -> Dict[str, Any]:
             "phase_4_strategy": phase_4_strategy,
             "phase_5_risk": phase_5_risk,
             "phase_6_alphav": phase_6_alphav,
+            "phase_7_ml_prediction": phase_7_ml_prediction,
+            "phase_8_gap_analysis": phase_8_gap_analysis,
 
             
             "summary": {
@@ -358,7 +572,14 @@ def _get_full_analysis_data_sync(symbol: str) -> Dict[str, Any]:
                 "kill_switch": phase_5_risk['kill_switch_active'],
                 "alpha_v_score": phase_6_alphav['total_score'],
                 "alpha_v_grade": phase_6_alphav['grade'],
-
+                # ML Enhancement
+                "ml_pattern": phase_7_ml_prediction.get('pattern', 'UNKNOWN'),
+                "ml_confidence": phase_7_ml_prediction.get('confidence', 0),
+                "ml_direction": phase_7_ml_prediction.get('price_direction', 'FLAT'),
+                # Gap Analysis
+                "wyckoff_pattern": phase_8_gap_analysis['wyckoff']['pattern'],
+                "aqs_grade": phase_8_gap_analysis['aqs']['grade'],
+                "churn_warning": phase_8_gap_analysis['churn'].get('warning', 'NONE')
             }
         }
         

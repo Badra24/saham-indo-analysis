@@ -337,63 +337,60 @@ async def get_bandarmology(ticker: str, date: str = None, force_refresh: bool = 
     - force_refresh: Skip cache and fetch fresh data
     - use_browser: Try IDX Browser first (default: True, set False to force GoAPI)
     """
-    from app.services.goapi_client import get_broker_summary_hybrid
-    from app.services.database_service import db_service
+    from app.services.idx_broker_aggregator import get_broker_aggregator
     from app.services.mock_data_generator import mock_generator
-    from datetime import date as dt_date, datetime
     
     try:
         formatted_ticker = ticker.upper().replace(".JK", "")
         
-        # Determine target date
-        target_date = date if date else dt_date.today().isoformat()
+        # ========================================
+        # DIRECT STOCKBIT FETCH (No DuckDB Cache)
+        # Reason: Real-time data, caching causes locks
+        # ========================================
+        # DIRECT STOCKBIT FETCH (No DuckDB Cache)
+        # Reason: Real-time data, caching causes locks
+        # Use stockbit_client DIRECTLY to preserve rich keys (name, type, is_foreign)
+        # which aggregator was stripping out.
+        # ========================================
+        from app.services.stockbit_client import stockbit_client
+        result = await stockbit_client.get_bandarmology(formatted_ticker)
         
-        # 1. OPTIMIZATION: Check DB First
-        if not force_refresh:
-            db_data = db_service.get_broker_summary_by_date(formatted_ticker, target_date)
-            if db_data:
-                print(f"[OPTIMIZATION] Returning {formatted_ticker} data from DuckDB for {target_date}")
-                db_data["from_cache"] = True
-                db_data["status"] = db_data.get("status", "NEUTRAL") # Ensure keys exist
-                return db_data
-
-        # 2. Use hybrid approach (IDX Browser -> GoAPI -> Demo)
-        result = await get_broker_summary_hybrid(
-            symbol=formatted_ticker,
-            date_str=date,
-            use_browser=use_browser
-        )
-        
-        # ---------------- INGESTION & FALLBACK LOGIC ----------------
-        # Check if we need to fallback to Mock Data (Rate Limited / Error)
-        if result.get("source") in ["error", "demo"] or result.get("status") == "DATA_UNAVAILABLE":
-            print(f"[FALLBACK] Using Mock Data Generator for {ticker}")
-            # Generate 1 day of mock data
+        # Fallback to Mock Data only if Stockbit completely fails
+        if result.get("source") in ["error", "stockbit_error"] or result.get("status") == "DATA_UNAVAILABLE":
+            print(f"[FALLBACK] Stockbit failed for {ticker}. Using Mock Data.")
             mock_days = mock_generator.generate_mock_history(formatted_ticker, days=1)
             if mock_days:
-                result = mock_days[-1] # Take latest
-                result["graph_analysis"] = {"status": "MOCK_DATA"} # Placeholder
-                
-        # Save to DuckDB for Historical Analysis (SKIP MOCK DATA)
-        # User Requirement: Mock data must NOT pollute the database.
-        data_source = result.get("source", "unknown")
-        if data_source not in ["mock", "demo", "error", "mock_generator"]:
-            try:
-                # Determine date
-                if date:
-                    save_date = date
-                else:
-                    save_date = dt_date.today().isoformat()
-                    
-                db_service.insert_broker_summary(formatted_ticker, str(save_date), result, source=data_source)
-            except Exception as db_e:
-                print(f"⚠️ Failed to save to DuckDB: {db_e}")
-        else:
-            print(f"[SKIP DB] Mock data ({data_source}) not saved to DuckDB to preserve analysis integrity.")
-            
-        # -------------------------------------------------------------
+                result = mock_days[-1]
+                result["source"] = "mock_fallback"
         
         result["from_cache"] = False
+        
+        # Enrich with Advanced Metrics (Gap Analysis Phase 2)
+        from app.services.bandarmology import bandarmology_engine
+        from app.services.wyckoff_detector import get_wyckoff_detector
+        
+        try:
+            hhi_data = bandarmology_engine.calculate_hhi(result)
+            vwap_data = bandarmology_engine.calculate_bandar_vwap(result)
+            
+            result['hhi'] = hhi_data
+            result['bandar_vwap'] = vwap_data.get('bandar_vwap', 0)
+            
+            # Wyckoff Detection (Requires Price History)
+            # Fetch last 90 days for pattern recognition
+            hist_summary = await stockbit_client.get_historical_summary(formatted_ticker, days=90)
+            if hist_summary:
+                detector = get_wyckoff_detector()
+                wyckoff_res = detector.detect(hist_summary, result)
+                if wyckoff_res and wyckoff_res.pattern.value != "None":
+                     result['wyckoff'] = {
+                         "pattern": wyckoff_res.pattern.value,
+                         "action": wyckoff_res.action,
+                         "confidence": wyckoff_res.confidence
+                     }
+        except Exception as calc_err:
+            print(f"Error calculating advanced metrics: {calc_err}")
+            
         return result
         
     except Exception as e:
@@ -433,36 +430,341 @@ async def get_broker_history(broker_code: str, ticker: str, days: int = 30):
     Query params:
     - days: Number of days to analyze (default: 30, max: 60)
     """
-    from app.services.goapi_client import get_goapi_client
+    # from app.services.goapi_client import get_goapi_client # DELETED
+    
+    # Limit days to prevent API abuse
+    days = min(days, 60)
+    
+    from app.services.idx_broker_aggregator import get_broker_aggregator
+    agg = get_broker_aggregator()
+    
+    return await agg.get_broker_history(ticker, broker_code, days)
+    
+    # Old placeholder code removed below
+
+
+# ========================================
+# NEW: STOCKBIT REAL DATA ENDPOINTS
+# ========================================
+
+@router.get("/stockbit/orderbook/{ticker}")
+async def get_stockbit_orderbook(ticker: str):
+    """
+    Get REAL orderbook (bid/ask) data from Stockbit.
+    
+    Returns:
+    - bid/offer levels with price and volume
+    - lastprice, high, low, open, close
+    - foreign/domestic breakdown
+    - ARA/ARB limits
+    """
+    from app.services.stockbit_client import stockbit_client
+    
+    formatted_ticker = ticker.upper().replace(".JK", "")
+    result = await stockbit_client.get_orderbook(formatted_ticker)
+    
+    if not result:
+        return {"error": "Data unavailable", "source": "stockbit_error"}
+    
+    return result
+
+
+@router.get("/stockbit/foreignflow/{ticker}")
+async def get_stockbit_foreignflow(ticker: str, period: str = "PERIOD_RANGE_1D"):
+    """
+    Get foreign vs domestic flow data from Stockbit.
+    
+    Query params:
+    - period: PERIOD_RANGE_1D, PERIOD_RANGE_1W, etc.
+    
+    Returns:
+    - summary: net foreign/domestic totals
+    - value: time series of flows
+    """
+    from app.services.stockbit_client import stockbit_client
+    
+    formatted_ticker = ticker.upper().replace(".JK", "")
+    # Use the comprehensive get_bandarmology method which returns summaries and flows
+    result = await stockbit_client.get_bandarmology(formatted_ticker)
+    
+    if not result:
+        return {"error": "Data unavailable", "source": "stockbit_error"}
+    
+    return result
+
+
+@router.get("/stockbit/emiten/{ticker}")
+async def get_stockbit_emiten(ticker: str):
+    """
+    Get company/emiten information from Stockbit.
+    
+    Returns:
+    - name, sector, sub_sector
+    - sentiment, indexes
+    - price info
+    """
+    from app.services.stockbit_client import stockbit_client
+    
+    formatted_ticker = ticker.upper().replace(".JK", "")
+    result = await stockbit_client.get_emiten_info(formatted_ticker)
+    
+    if not result:
+        return {"error": "Data unavailable", "source": "stockbit_error"}
+    
+    return result
+
+
+@router.get("/stockbit/runningtrade/{ticker}")
+async def get_stockbit_running_trade(ticker: str, limit: int = 50):
+    """
+    Get real-time running trade data from Stockbit.
+    
+    Returns:
+    - List of recent trades with price, volume, time
+    - is_open_market status
+    """
+    from app.services.stockbit_client import stockbit_client
+    
+    formatted_ticker = ticker.upper().replace(".JK", "")
+    result = await stockbit_client.get_running_trade(formatted_ticker, limit)
+    
+    if not result:
+        return {"error": "Data unavailable", "source": "stockbit_error"}
+    
+    return result
+
+
+# ========================================
+# STOCKBIT FINANCIAL DATA ENDPOINTS
+# ========================================
+
+@router.get("/stockbit/financial/{ticker}")
+async def get_stockbit_financial(ticker: str):
+    """
+    Get financial data from Stockbit.
+    Returns key financial metrics (market_cap, dividend_yield, price, etc.)
+    This endpoint can replace manual financial report uploads!
+    """
+    from app.services.stockbit_client import stockbit_client
+    
+    formatted_ticker = ticker.upper().replace(".JK", "")
+    result = await stockbit_client.get_financial_data(formatted_ticker)
+    
+    if not result:
+        db_result = db_service.get_financial_report(formatted_ticker)
+        if db_result:
+            return {"source": "duckdb_upload", "symbol": formatted_ticker, "metrics": db_result}
+        return {"error": "Financial data unavailable", "source": "none"}
+    
+    return result
+
+
+@router.get("/stockbit/fundachart/{ticker}/{metric}")
+async def get_stockbit_fundachart(ticker: str, metric: str, timeframe: str = "5y"):
+    """
+    Get specific fundachart metric data.
+    Metrics: market_cap, dividend_yield, revenue, current_ratio, debt_to_equity, etc.
+    """
+    from app.services.stockbit_client import stockbit_client
+    
+    formatted_ticker = ticker.upper().replace(".JK", "")
+    item_id = stockbit_client.FUNDACHART_ITEMS.get(metric)
+    if not item_id:
+        return {"error": f"Unknown metric: {metric}", "available": list(stockbit_client.FUNDACHART_ITEMS.keys())}
+    
+    result = await stockbit_client.get_fundachart(formatted_ticker, item_id, timeframe)
+    if not result:
+        return {"error": "Data unavailable"}
+    
+    return {"symbol": formatted_ticker, "metric": metric, "timeframe": timeframe, "data": result}
+
+
+@router.get("/stockbit/company/{ticker}")
+async def get_stockbit_company(ticker: str):
+    """Get company info from Stockbit (name, sector, description)."""
+    from app.services.stockbit_client import stockbit_client
+    
+    formatted_ticker = ticker.upper().replace(".JK", "")
+    result = await stockbit_client.get_emiten_info(formatted_ticker)
+    
+    if not result:
+        return {"error": "Company info unavailable"}
+    
+    return {"symbol": formatted_ticker, "source": "stockbit", "data": result}
+
+
+# ========================================
+# ANALYTICS ENDPOINTS (Trend & Heatmap)
+# ========================================
+
+@router.get("/analytics/trend/{ticker}")
+async def get_analytics_trend(ticker: str, days: int = 30):
+    """
+    Get trend data for broker flow visualization.
+    Uses Stockbit historical summary to generate foreign flow trend.
+    
+    Returns list of daily data with:
+    - date, net_foreign (foreign_buy - foreign_sell), cumulative_flow
+    """
+    from app.services.stockbit_client import stockbit_client
+    
+    formatted_ticker = ticker.upper().replace(".JK", "")
     
     try:
-        # Limit days to prevent API abuse
-        days = min(days, 60)
+        history = await stockbit_client.get_historical_summary(formatted_ticker, days=days)
         
-        client = get_goapi_client()
-        history_data = client.get_broker_history(broker_code, ticker, days)
+        if not history:
+            return []
         
-        return history_data
+        # Calculate trend data
+        cumulative = 0
+        trend_data = []
+        
+        for day in sorted(history, key=lambda x: x.get('date', '')):
+            net_foreign = (day.get('foreign_buy', 0) or 0) - (day.get('foreign_sell', 0) or 0)
+            cumulative += net_foreign
+            
+            trend_data.append({
+                "date": day.get('date', ''),
+                "net_foreign": net_foreign,
+                "cumulative_flow": cumulative,
+                "volume": day.get('volume', 0),
+                "close": day.get('close', 0),
+                "foreign_buy": day.get('foreign_buy', 0),
+                "foreign_sell": day.get('foreign_sell', 0)
+            })
+        
+        return trend_data
         
     except Exception as e:
-        print(f"Error getting broker history for {broker_code}/{ticker}: {e}")
-        return {
-            "broker_code": broker_code.upper(),
-            "broker_name": broker_code.upper(),
-            "broker_type": "UNKNOWN",
-            "is_foreign": False,
-            "symbol": ticker.upper(),
-            "days_analyzed": days,
-            "active_days": 0,
-            "running_buy": 0,
-            "running_sell": 0,
-            "running_position": 0,
-            "avg_daily_volume": 0,
-            "trend": "DATA_TERBATAS",
-            "daily_activity": [],
-            "is_demo": False
-        }
+        print(f"Error getting trend: {e}")
+        return []
 
+@router.get("/analytics/intraday-flow/{ticker}")
+async def get_analytics_intraday_flow(ticker: str, days: int = 7):
+    """
+    Get Intraday Broker Flow (Retail vs Foreign vs Inst).
+    Uses Stockbit Running Trade Chart data.
+    """
+    from app.services.stockbit_client import stockbit_client, get_broker_category
+    from datetime import datetime
+    
+    formatted_ticker = ticker.upper().replace(".JK", "")
+    
+    # Determine Period
+    period = "RT_PERIOD_LAST_1_DAY"
+    if days > 1: period = "RT_PERIOD_LAST_7_DAYS"
+    if days > 7: period = "RT_PERIOD_LAST_1_MONTH"
+    
+    try:
+        data = await stockbit_client.get_running_trade_chart(formatted_ticker, period=period)
+        if not data or 'broker_chart' not in data:
+            return []
+            
+        broker_chart = data['broker_chart']
+        
+        # We need to aggregate flows by timestamp
+        # Structure: Map<Timestamp, {retail: 0, foreign: 0, inst: 0, price: 0}>
+        time_map = {}
+        
+        # Process Broker Charts
+        for bc in broker_chart:
+            if bc.get('type') != 'TYPE_CHART_VALUE':
+                continue
+                
+            charts = bc.get('charts', [])
+            for c in charts:
+                broker_code = c.get('broker_code')
+                category = get_broker_category(broker_code)
+                
+                points = c.get('chart', [])
+                for p in points:
+                    # Key: date + time (e.g., "2026-01-07 09:00")
+                    dt_key = f"{p.get('date')} {p.get('time')}"
+                    
+                    if dt_key not in time_map:
+                        time_map[dt_key] = {
+                            "date": dt_key, 
+                            "retail_flow": 0.0, 
+                            "foreign_flow": 0.0, 
+                            "inst_flow": 0.0,
+                            "price": 0.0 # Will fill later
+                        }
+                    
+                    raw_val = float(p.get('value', {}).get('raw', 0))
+                    
+                    if category == "Retail":
+                        time_map[dt_key]["retail_flow"] += raw_val
+                    elif category == "Foreign":
+                        time_map[dt_key]["foreign_flow"] += raw_val
+                    elif category == "Inst":
+                        time_map[dt_key]["inst_flow"] += raw_val
+
+        # Fill Price Data (Optional, if we want price overlay)
+        price_chart = data.get('price_chart', [])
+        for p in price_chart:
+             dt_key = f"{p.get('date')} {p.get('time')}"
+             if dt_key in time_map:
+                 time_map[dt_key]["price"] = float(p.get('value', {}).get('raw', 0))
+        
+        # Convert to List and Sort
+        result = list(time_map.values())
+        result.sort(key=lambda x: x['date'])
+        
+        return result
+        
+    except Exception as e:
+        print(f"Error getting intraday flow: {e}")
+        return []
+
+
+@router.get("/analytics/heatmap/{ticker}")
+async def get_analytics_heatmap(ticker: str, days: int = 30):
+    """
+    Get heatmap data for broker activity visualization.
+    
+    Returns list of daily data with activity intensity.
+    """
+    from app.services.stockbit_client import stockbit_client
+    
+    formatted_ticker = ticker.upper().replace(".JK", "")
+    
+    try:
+        history = await stockbit_client.get_historical_summary(formatted_ticker, days=days)
+        
+        if not history:
+            return []
+        
+        # Calculate average volume for normalization
+        volumes = [d.get('volume', 0) or 0 for d in history]
+        avg_volume = sum(volumes) / len(volumes) if volumes else 1
+        
+        heatmap_data = []
+        for day in sorted(history, key=lambda x: x.get('date', '')):
+            volume = day.get('volume', 0) or 0
+            value = day.get('value', 0) or 0
+            
+            # Intensity: how much above/below average
+            intensity = (volume / avg_volume) if avg_volume > 0 else 0
+            
+            # Determine activity type based on foreign flow
+            net_foreign = (day.get('foreign_buy', 0) or 0) - (day.get('foreign_sell', 0) or 0)
+            activity_type = "accumulation" if net_foreign > 0 else "distribution" if net_foreign < 0 else "neutral"
+            
+            heatmap_data.append({
+                "date": day.get('date', ''),
+                "intensity": round(intensity, 2),
+                "volume": volume,
+                "value": value,
+                "activity_type": activity_type,
+                "net_foreign": net_foreign
+            })
+        
+        return heatmap_data
+        
+    except Exception as e:
+        print(f"Heatmap fetch error: {e}")
+        return []
 
 @router.get("/indicators/{ticker}")
 async def get_indicators(ticker: str, period: str = "1y"):
@@ -837,7 +1139,7 @@ async def reset_kill_switch():
 
 
 # ========================================
-# VOLUME SCANNER ENDPOINTS (Remora-Quant)
+# MASSIVE SCREENER ENDPOINTS (Unified)
 # ========================================
 
 @router.get("/scanner/volume")
@@ -847,79 +1149,138 @@ async def scan_volume_stocks(
     limit: int = 20
 ):
     """
-    Scan stocks for abnormal volume activity.
+    Scan stocks using the new Massive Screener Engine.
     
-    Parameters:
-    - min_rvol: Minimum Relative Volume (default 1.5x)
-    - min_value: Minimum value traded in Miliar IDR (default 10)
-    - limit: Max results to return
-    
-    Returns stocks sorted by RVOL with HOT/WARM/NORMAL signals.
+    Adapts the new engine output to match the old frontend contract.
     """
-    from app.services.volume_scanner import scan_volume_async
-    
-    # Convert min_value from Miliar to Rupiah
-    min_value_rupiah = min_value * 1_000_000_000
+    from app.services.screener_service import screener_service
     
     try:
-        results = await scan_volume_async(
-            min_rvol=min_rvol,
-            min_value=min_value_rupiah,
-            limit=limit
-        )
+        # Run the Massive Screener
+        # min_value logic is handled in service (default > 1B), filter further here if needed
+        results = await screener_service.screen_stocks(limit=limit * 2, min_rvol=min_rvol)
         
+        # Filter by value (convert min_value from Miliar to full IDR)
+        min_value_idx = min_value * 1_000_000_000
+        filtered_results = [r for r in results if r['value_idr'] >= min_value_idx]
+        
+        # Map to Frontend Format
+        mapped_results = []
+        for r in filtered_results[:limit]:
+            # Determine Signal Label from signals list
+            signal_label = "NORMAL"
+            reason = ""
+            
+            if "RVOL_SPIKE_EXTREME" in r['signals']:
+                signal_label = "HOT"
+                reason = "Extreme Volume Spike"
+            elif "RVOL_SPIKE" in r['signals']:
+                signal_label = "WARM"
+                reason = "Volume Spike"
+            elif "GOLDEN_CROSS" in r['signals']:
+                signal_label = "WARM"
+                reason = "Golden Cross"
+            
+            # Append other signals to reason
+            other_signals = [s for s in r['signals'] if s not in ["RVOL_SPIKE_EXTREME", "RVOL_SPIKE", "GOLDEN_CROSS"]]
+            if other_signals:
+                reason += f" | {', '.join(other_signals)}"
+            
+            # Add Bandar Status to reason if significant
+            if r['bandar_status'] != "NEUTRAL":
+                reason += f" | {r['bandar_status']}"
+
+
+            # Calculate Recommendation based on technicals and bandarmology
+            recommendation = "HOLD"
+            if r['rsi'] < 35 and r['bandar_status'] in ['AKUMULASI', 'Big Acc']:
+                recommendation = "STRONG BUY"
+            elif r['rsi'] < 45 and r['bandar_status'] in ['AKUMULASI', 'Big Acc', 'Small Acc']:
+                recommendation = "BUY / ACCUMULATE"
+            elif r['rsi'] > 70 or r['bandar_status'] in ['DISTRIBUSI', 'Big Dist']:
+                recommendation = "SELL"
+            elif r['rsi'] > 60 and r['bandar_status'] in ['Small Dist']:
+                recommendation = "REDUCE"
+            elif len(r['signals']) > 0 and 'ABOVE_VWAP' in r['signals']:
+                recommendation = "BUY / ACCUMULATE"
+            
+            # Calculate Price Targets (simplified based on technicals)
+            current_price = r['price']
+            conservative_target = round(current_price * 1.05, 0)  # +5%
+            moderate_target = round(current_price * 1.10, 0)  # +10%
+            aggressive_target = round(current_price * 1.20, 0)  # +20%
+            
+            # Calculate momentum label
+            momentum = "neutral"
+            if r['rsi'] > 60:
+                momentum = "bullish"
+            elif r['rsi'] < 40:
+                momentum = "bearish"
+            elif 'ABOVE_VWAP' in r['signals']:
+                momentum = "bullish"
+
+            mapped_results.append({
+                'ticker': r['ticker'],
+                'name': r['ticker'],
+                'sector': "Unknown",
+                'price': r['price'],
+                'change_percent': r['change_pct'],
+                'volume': r['volume'],
+                'volume_formatted': f"{r['volume'] / 1_000_000:.1f}M" if r['volume'] >= 1_000_000 else f"{r['volume'] / 1_000:.1f}K",
+                'avg_volume': r['volume'],
+                'rvol': r['rvol'],
+                'value_miliar': round(r['value_idr'] / 1_000_000_000, 1),
+                'signal': signal_label,
+                'signal_reason': reason.strip(" | "),
+                # Enhanced fields
+                'recommendation': recommendation,
+                'momentum': momentum,
+                'signals_list': r['signals'],
+                'bandar_status': r['bandar_status'],
+                'bandar_volume': r.get('bandar_volume', 0),
+                'price_targets': {
+                    'conservative': conservative_target,
+                    'moderate': moderate_target,
+                    'aggressive': aggressive_target
+                },
+                'key_indicators': {
+                    'rsi': r['rsi'],
+                    'macd': r.get('macd', 0),
+                    'stoch_k': r.get('stoch_k', 50),
+                    'vol_ratio': r['rvol']
+                },
+                'technicals': {
+                    'ma20': r.get('ma20', 0),
+                    'ma50': r.get('ma50', 0),
+                    'vwap': r.get('vwap', 0),
+                    'rsi': r['rsi'],
+                    'stoch_k': r.get('stoch_k', 50)
+                },
+                'top_buyers': r.get('top_buyers', [])[:3],
+                'top_sellers': r.get('top_sellers', [])[:3]
+            })
+            
         return {
-            "count": len(results),
+            "count": len(mapped_results),
             "filters": {
                 "min_rvol": min_rvol,
                 "min_value_miliar": min_value,
             },
             "timestamp": int(time.time()),
-            "results": [
-                {
-                    'ticker': r.ticker,
-                    'name': r.name,
-                    'sector': r.sector,
-                    'price': r.current_price,
-                    'change_percent': round(r.change_percent, 2),
-                    'volume': r.volume,
-                    'avg_volume': r.avg_volume_20,
-                    'rvol': r.rvol,
-                    'value_miliar': round(r.value_traded / 1_000_000_000, 1),
-                    'signal': r.signal,
-                    'signal_reason': r.signal_reason
-                }
-                for r in results
-            ]
+            "results": mapped_results
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Scanner error: {str(e)}")
+        print(f"Screener Error: {e}")
+        return {"count": 0, "results": []}
 
 
 @router.get("/scanner/hot")
 async def get_hot_stocks():
     """
-    Quick scan for HOT stocks only.
-    
-    Returns top 10 stocks with:
-    - RVOL >= 2x
-    - Value >= 20 Miliar
-    - Signal = HOT or WARM
-    
-    Use this for real-time alerts and quick overview.
+    Quick scan for HOT stocks only (Wrapper for Massive Screener).
     """
-    from app.services.volume_scanner import get_hot_stocks as fetch_hot
-    
-    try:
-        results = await fetch_hot()
-        
-        return {
-            "count": len(results),
-            "timestamp": int(time.time()),
-            "hot_stocks": results
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Scanner error: {str(e)}")
+    # Reuse the logic above with strict filters
+    return await scan_volume_stocks(min_rvol=2.0, min_value=20, limit=10)
 
 
 # ========================================
@@ -1265,71 +1626,97 @@ async def get_alpha_v_score_endpoint(
     broker_data = _uploaded_broker_data.get(cache_key) if use_uploaded_data else None
     financial_data = _uploaded_financial_data.get(cache_key) if use_uploaded_data else None
 
-    # Fallback: Check DuckDB for Broker Summary (Priority 2)
+    # Fallback: Fetch from Stockbit API (Priority 2 - Real-time)
     if not broker_data:
         try:
-            from app.services.database_service import db_service
-            from datetime import date
+            from app.services.idx_broker_aggregator import get_broker_aggregator
             from app.models.file_models import BrokerType, BrokerEntry
             
-            # Fetch from DB (today's data or latest)
-            # For Alpha-V, we usually want the latest available data
-            db_result = db_service.get_broker_summary_by_date(ticker_upper.replace(".JK",""), date.today().isoformat())
+            # Fetch directly from Stockbit (no DuckDB caching)
+            aggregator = get_broker_aggregator()
+            stockbit_result = await aggregator.get_broker_summary_for_stock(ticker_upper.replace(".JK",""))
             
-            # If not found for today, maybe try query without date (latest)? 
-            # db_service.get_history returns list. get_broker_summary_by_date needs date.
-            # Let's assume user just uploaded or it's fresh.
-            
-            if db_result:
-                print(f"[Alpha-V] Found persistent data in DuckDB for {ticker_upper}")
-                # Map DB Dict -> BrokerSummaryData Pydantic Model
+            if stockbit_result and stockbit_result.get("source") == "stockbit":
+                print(f"[Alpha-V] Got real-time data from Stockbit for {ticker_upper}")
                 
                 # Map Buyers
                 top_buyers = []
-                for b in db_result.get("top_buyers", []):
+                for b in stockbit_result.get("top_buyers", []):
                     top_buyers.append(BrokerEntry(
                         broker_code=b['code'],
-                        broker_name=b['code'], # Name not stored in summary dict
-                        broker_type=BrokerType.UNKNOWN, # or map from b['type']
+                        broker_name=b['code'],
+                        broker_type=BrokerType.UNKNOWN,
                         buy_value=b['value'],
-                        buy_volume=b['volume'],
-                        is_foreign=b.get('is_foreign', False)
+                        buy_volume=b.get('volume', 0),
+                        is_foreign=b['code'] in ["CC", "ML", "YP", "CS", "DB", "GS", "JP", "MS", "UB"]
                     ))
                     
                 # Map Sellers
                 top_sellers = []
-                for s in db_result.get("top_sellers", []):
+                for s in stockbit_result.get("top_sellers", []):
                     top_sellers.append(BrokerEntry(
                         broker_code=s['code'],
                         broker_name=s['code'],
                         broker_type=BrokerType.UNKNOWN,
                         sell_value=s['value'],
-                        sell_volume=s['volume'],
-                        is_foreign=s.get('is_foreign', False)
+                        sell_volume=s.get('volume', 0),
+                        is_foreign=s['code'] in ["CC", "ML", "YP", "CS", "DB", "GS", "JP", "MS", "UB"]
                     ))
 
-                # Safe conversion for Phase and BCR
-                bcr_val = float(db_result.get("concentration_ratio", 0) or 0)
-                # If from DB, source might be 'upload' or 'goapi'
-                
+                from datetime import date
                 broker_data = BrokerSummaryData(
                     ticker=ticker_upper,
-                    date=date.today().isoformat(), # approximate
-                    source=f"db_{db_result.get('source', 'unknown')}",
+                    date=date.today().isoformat(),
+                    source="stockbit_realtime",
                     top_buyers=top_buyers,
                     top_sellers=top_sellers,
-                    bcr=bcr_val,
-                    net_foreign_flow=float(db_result.get("foreign_net_flow", 0) or 0),
-                    foreign_flow_pct=0, # Calc if needed
-                    total_buy=float(db_result.get("buy_value", 0) or 0),
-                    total_sell=float(db_result.get("sell_value", 0) or 0),
-                    total_transaction_value=float(db_result.get("buy_value", 0) or 0) + float(db_result.get("sell_value", 0) or 0),
-                    phase=db_result.get("status", "NEUTRAL")
+                    bcr=0.0,  # Not available from summary
+                    net_foreign_flow=float(stockbit_result.get("net_flow", 0) or 0),
+                    foreign_flow_pct=0,
+                    total_buy=float(stockbit_result.get("buy_value", 0) or 0),
+                    total_sell=float(stockbit_result.get("sell_value", 0) or 0),
+                    total_transaction_value=float(stockbit_result.get("buy_value", 0) or 0) + float(stockbit_result.get("sell_value", 0) or 0),
+                    phase=stockbit_result.get("status", "NEUTRAL")
                 )
         except Exception as e:
-            print(f"[Alpha-V] DB Fallback failed: {e}")
+            print(f"[Alpha-V] Stockbit fallback failed: {e}")
     
-    # Fallback: Check DuckDB for Financial Data (Priority 2)
+    # Fallback: Fetch from Stockbit API (Priority 2 - Live Data)
+    if not financial_data:
+        try:
+            from app.services.stockbit_client import stockbit_client
+            print(f"[Alpha-V] Fetching financial data from Stockbit for {ticker_upper}...")
+            stockbit_fin = await stockbit_client.get_financial_data_with_fallback(cache_key)
+            
+            if stockbit_fin:
+                print(f"[Alpha-V] Got financial data from Stockbit: {list(stockbit_fin.keys())}")
+                # Convert to FinancialReportData
+                financial_data = FinancialReportData(
+                    ticker=stockbit_fin.get('ticker', cache_key),
+                    period=stockbit_fin.get('period', 'Auto'),
+                    report_type=stockbit_fin.get('report_type', 'quarterly'),
+                    source='stockbit-auto',
+                    per=stockbit_fin.get('per'),
+                    pbv=stockbit_fin.get('pbv'),
+                    pcf=stockbit_fin.get('pcf'),
+                    ev_ebitda=stockbit_fin.get('ev_ebitda'),
+                    roe=stockbit_fin.get('roe'),
+                    roa=stockbit_fin.get('roa'),
+                    npm=stockbit_fin.get('npm'),
+                    opm=stockbit_fin.get('opm'),
+                    ocf=stockbit_fin.get('ocf'),
+                    net_income=stockbit_fin.get('net_income'),
+                    der=stockbit_fin.get('der'),
+                    current_ratio=stockbit_fin.get('current_ratio'),
+                    quick_ratio=stockbit_fin.get('quick_ratio'),
+                )
+                print(f"[Alpha-V] Created FinancialReportData from Stockbit: PER={financial_data.per}, PBV={financial_data.pbv}, EV/EBITDA={financial_data.ev_ebitda}, PCF={financial_data.pcf}")
+        except Exception as e:
+            print(f"[Alpha-V] Stockbit Financial Data fallback failed: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # Fallback: Check DuckDB for Financial Data (Priority 3 - Persistent Cache)
     if not financial_data:
         try:
             from app.services.database_service import db_service
@@ -1646,5 +2033,7 @@ async def run_swarm_analysis(ticker: str):
     mission_report = await agent_swarm.run_mission(ticker, full_context)
     
     return mission_report
+
+
 
 

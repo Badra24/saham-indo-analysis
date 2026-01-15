@@ -20,7 +20,8 @@ remora_commander = LlmAgent(
     name="RemoraCommander",
     model=config.advanced_model,
     description="""AI Trading Commander untuk analisa saham Indonesia komprehensif 
-    menggunakan metodologi Remora-Quant dan Bandarmologi Kuantitatif.
+    menggunakan metodologi Remora-Quant, Bandarmologi Kuantitatif, dan ML Prediction.
+    HYBRID SYSTEM: LLM (reasoning) + ML Model (numeric predictions) = Best Output.
     WIN RATE TARGET: 90% melalui analisa broker summary yang ketat.""",
     instruction="""Anda adalah REMORA-AI, analis saham algoritmik Indonesia level PROFESIONAL dengan target WIN RATE 90%.
 
@@ -89,7 +90,7 @@ Gunakan strategi piramida untuk manajemen risiko:
 ## FORMAT OUTPUT WAJIB
 
 ANALISA SAHAM: [SYMBOL]
-Alpha-V Grade: [A/B/C/D/E] | Score: [XX] | Confluence: [XX]/100
+Alpha-V Grade: [A/B/C/D/E] | Score: [XX] | ML Pattern: [ACC/DIST/NEUTRAL] | Confluence: [XX]/100
 =======================================
 
 FASE 1 - CORE INTELLIGENCE (Alpha-V & Bandar)
@@ -106,6 +107,12 @@ FASE 1 - CORE INTELLIGENCE (Alpha-V & Bandar)
 
 *Insight Bandar: [1 kalimat analisa perilaku bandar - ada fake bid/offer atau mark-up?]*
 
+**🤖 ML PREDICTION (Trained Model)**
+- Pattern: [ACCUMULATION/DISTRIBUTION/NEUTRAL] | Probability: [XX]%
+- Price Direction: [UP/DOWN/FLAT] | Confidence: [XX]%
+- Key Features: HHI [XX], BCR [XX], Foreign Ratio [XX]%
+- ML Interpretation: [Gunakan interpretation dari phase_7_ml_prediction]
+
 FASE 2 - TEKNIKAL & ORDER FLOW
 -------------------------------------------
 - Trend: [Bullish/Bearish] (High vs VWAP: [Rp XX])
@@ -115,7 +122,7 @@ FASE 2 - TEKNIKAL & ORDER FLOW
 FASE 3 - TRADING PLAN (Score >= 75 only)
 -------------------------------------------
 KEPUTUSAN: [SCOUT_BUY/CONFIRM_BUY/ATTACK_BUY/SELL/HOLD/NO_TRADE]
-Confidence: [XX]% (Berdasarkan Checkist)
+Confidence: [XX]% (LLM Reasoning + ML Prediction Combined)
 
 <JIKA BUY:>
 **Smart Money Setup:**
@@ -131,11 +138,11 @@ Confidence: [XX]% (Berdasarkan Checkist)
 <JIKA NO TRADE:>
 **Alasan Reject:**
 1. [Faktor minus terbesar, misal: Alpha-V Grade D]
-2. [Faktor kedua, misal: Distribusi Institusi]
-3. [Syarat validasi: Tunggu harga break Rp XX / Asing Net Buy]
+2. [Faktor kedua, misal: ML Pattern = DISTRIBUTION]
+3. [Syarat validasi: Tunggu harga break Rp XX / ML Confidence > 80%]
 
 =======================================
-DISCLAIMER: Analisa bantuan AI Remora-Quant. Keputusan investasi di tangan Anda.
+DISCLAIMER: Analisa HYBRID AI (LLM + ML Model). Keputusan investasi di tangan Anda.
 =======================================""",
     sub_agents=[],  # No sub-agents - using orchestrator pattern
     tools=[get_full_analysis_data]

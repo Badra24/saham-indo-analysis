@@ -1,99 +1,203 @@
+
+import asyncio
+import logging
+from typing import List, Dict, Optional, Any
+from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
-import numpy as np
-from typing import List, Dict, Optional
-from app.services.goapi_client import get_goapi_client
-from app.services.idx_static_data import search_emitens
+import yfinance as yf
+from app.services.idx_static_data import get_all_tickers
+from app.services.indicators import calculate_all_indicators
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 class ScreenerService:
     """
-    Screener Service for Daily Universe Selection.
+    Massive AI Market Screener Engine.
     
-    Implements research-based filtering:
-    1. Liquidity > 10B IDR
-    2. RVOL (Relative Volume) > 2.0
-    3. Beta > 1.5 (High Volatility)
+    Features:
+    - Scans 800+ stocks in parallel using ThreadPoolExecutor.
+    - Implements "Analisis Scanning saham.txt" criteria (RVOL, VWAP, Bandarmology).
+    - High performance (seconds vs minutes).
     """
     
-    # Static watchlist to avoid API rate limits (scanning 800 stocks is expensive)
-    # This represents a "Focus Universe" of liquid active stocks
-    UNIVERSE_WATCHLIST = [
-        "BBCA", "BBRI", "BMRI", "BBNI", "TLKM", "ASII", # Big Caps
-        "ADES", "AMMN", "BREN", "TPIA", "BRPT", "CUAN", # Volatile / Conglomerate
-        "GOTO", "BUKA", "EMTK", "ARTO", # Tech
-        "MDKA", "ANTM", "INCO", "PTBA", "ADRO", # Commodity
-        "BRIS", "PNBS", "BRMS", "BUMI", "DEWA", # Second Liners
-        "MEDC", "PGAS", "AKRA", "EXCL", "ISAT"
-    ]
-
     def __init__(self):
-        self.client = get_goapi_client()
+        self._executor = ThreadPoolExecutor(max_workers=50) # Optimum for I/O bound tasks
+        
+    def _fetch_analyze_single(self, ticker: str) -> Optional[Dict]:
+        """
+        Worker function to fetch and analyze a single stock.
+        Running in a separate thread.
+        """
+        try:
+            # 1. Fetch Data (1 year for MA200)
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period="6mo") # 6 months is enough for most indicators
+            
+            if hist.empty or len(hist) < 50:
+                return None
+                
+            # 2. Calculate Technicals
+            df = calculate_all_indicators(hist)
+            latest = df.iloc[-1]
+            prev = df.iloc[-2]
+            
+            # 3. Extract Core Metrics
+            price = latest['Close']
+            volume = latest['Volume']
+            avg_vol_20 = latest.get('Volume_SMA', volume)
+            if avg_vol_20 == 0: avg_vol_20 = 1
+            
+            rvol = volume / avg_vol_20
+            value_idr = price * volume
+            
+            # 4. Status Classification (The "AI" Logic)
+            signals = []
+            
+            # --- RESEARCH CRITERIA ---
+            
+            # A. Anomaly Volume (Bandar Activity)
+            if rvol > 3.0:
+                signals.append("RVOL_SPIKE_EXTREME")
+            elif rvol > 2.0:
+                signals.append("RVOL_SPIKE")
+                
+            # B. Trend & Momentum
+            rsi = latest.get('RSI', 50)
+            if rsi > 70:
+                signals.append("OVERBOUGHT")
+            elif rsi < 30:
+                signals.append("OVERSOLD")
+                
+            # C. VWAP Logic (Bullish Control)
+            vwap = latest.get('VWAP', price)
+            if price > vwap:
+                signals.append("ABOVE_VWAP")
+            
+            # D. Reversal Detection (Oversold + Trend Naik logic from viral image)
+            # Logic: RSI Oversold but Price > MA5 or Price making higher low (simplified)
+            ma20 = latest.get('SMA_20', 0) or latest.get('EMA_21', 0)
+            if rsi < 35 and price > prev['Close']:
+                signals.append("POTENTIAL_REVERSAL")
+                
+            # E. Golden Cross
+            ma50 = latest.get('SMA_50', 0)
+            ma200 = latest.get('SMA_200', 0)
+            if ma50 > ma200 and prev.get('SMA_50', 0) <= prev.get('SMA_200', 0):
+                signals.append("GOLDEN_CROSS")
 
-    async def screen_stocks(self, limit: int = 10) -> List[Dict]:
+            # 5. Bandarmology (Approximation without Broker Sum)
+            # If Volume Up + Price Up = Accumulation
+            # If Volume Up + Price Down = Distribution
+            price_change_pct = (price - prev['Close']) / prev['Close'] * 100
+            
+            bandar_status = "NEUTRAL"
+            if rvol > 1.5:
+                if price_change_pct > 1:
+                    bandar_status = "AKUMULASI"
+                elif price_change_pct < -1:
+                    bandar_status = "DISTRIBUSI"
+            
+            return {
+                "ticker": ticker.replace(".JK", ""),
+                "price": float(price),
+                "change_pct": round(float(price_change_pct), 2),
+                "volume": int(volume),
+                "value_idr": float(value_idr),
+                "rvol": round(float(rvol), 2),
+                "rsi": round(float(rsi), 2),
+                "ma20": round(float(ma20), 0),
+                "ma50": round(float(ma50), 0),
+                "stoch_k": round(float(latest.get('Stoch_K', 50)), 2),
+                "signals": signals,
+                "bandar_status": bandar_status,
+                "vwap": round(float(vwap), 0)
+            }
+            
+        except Exception as e:
+            # logger.error(f"Error screening {ticker}: {e}")
+            return None
+
+    async def _enrich_with_bandarmology(self, result: Dict) -> Dict:
         """
-        Screen stocks based on criteria:
-        - RVOL > 2.0
-        - Beta > 1.5
+        Fetch Bandarmology data from Stockbit for a filtered result.
         """
-        results = []
+        try:
+            from app.services.stockbit_client import stockbit_client
+            
+            # Only fetch if we have a valid token (handled inside client)
+            bandar_data = await stockbit_client.get_bandarmology(result['ticker'])
+            
+            if bandar_data:
+                result['bandar_status'] = bandar_data.get('top1_status', 'NEUTRAL')
+                result['bandar_volume'] = bandar_data.get('top1_amount', 0)
+                result['top_buyers'] = bandar_data.get('top_buyers', [])
+                result['top_sellers'] = bandar_data.get('top_sellers', [])
+                
+                # Enhanced Logic: Override technical status if Bandar Logic conflicts
+                # Example: If Stock Down but Big Accumulation -> "MARKDOWN ACCUM"
+                price_chg = result['change_pct']
+                status = bandar_data.get('avg5_status', '')
+                
+                if "Acc" in status:
+                    if price_chg < -1:
+                        result['signals'].append("MARKDOWN_ACCUMULATION")
+                    elif price_chg > 0:
+                        result['signals'].append("MARKUP_ACCUMULATION")
+                elif "Dist" in status:
+                     if price_chg > 1:
+                        result['signals'].append("MARKUP_DISTRIBUTION")
+                        
+        except Exception as e:
+            logger.error(f"Enrichment failed for {result['ticker']}: {e}")
+            
+        return result
+
+    async def screen_stocks(self, limit: int = 100, min_rvol: float = 1.0) -> List[Dict]:
+        """
+        Run Massive Scan on ALL Stocks.
+        """
+        # 1. Get Universe
+        all_tickers = get_all_tickers() # 800+ stocks
+        # Optional: Filter universe for testing? No, user wants MASSIVE.
         
-        # In a real production environment with paid API, we would scan all 800+ stocks.
-        # Here we scan our "Focus Universe" to respect rate limits.
-        for ticker in self.UNIVERSE_WATCHLIST:
-            try:
-                # 1. Get Historical Data (60 days for Beta)
-                # Need async version in GoClient ideally, but using sync for now as per client design
-                history = self.client.get_historical(ticker, from_date=None) # Defaults to 180 days
-                
-                if not history or len(history) < 20:
-                    continue
-                    
-                df = pd.DataFrame(history)
-                df['close'] = pd.to_numeric(df['close'])
-                df['volume'] = pd.to_numeric(df['volume'])
-                df['high'] = pd.to_numeric(df['high'])
-                df['low'] = pd.to_numeric(df['low'])
-                
-                # 2. Calculate Metrics
-                latest = df.iloc[-1]
-                
-                # RVOL (Relative Volume)
-                # Current Volume / Average Volume (20)
-                avg_vol_20 = df['volume'].tail(21).iloc[:-1].mean() # Exclude current day for baseline
-                if avg_vol_20 == 0: avg_vol_20 = 1
-                rvol = latest['volume'] / avg_vol_20
-                
-                # Beta (Volatility relative to "Market")
-                # Since we don't have Index data easily, we use simple Volatility (Std Dev of Returns)
-                # High Beta proxy = High Daily Volatility
-                df['returns'] = df['close'].pct_change()
-                volatility = df['returns'].std() * 100 # In percent
-                
-                # Value (Liquidity)
-                value_idr = latest['close'] * latest['volume']
-                
-                # 3. Filter Logic
-                # Research Criteria: RVOL > 2, High Volatility
-                is_rvol_pass = rvol > 1.5 # Relaxed slightly for MVP
-                is_liquid_pass = value_idr > 5_000_000_000 # > 5 Milliar
-                
-                if is_rvol_pass and is_liquid_pass:
-                    results.append({
-                        "ticker": ticker,
-                        "rvol": round(rvol, 2),
-                        "volatility_score": round(volatility, 2),
-                        "last_price": latest['close'],
-                        "value_idr": value_idr,
-                        "volume": latest['volume']
-                    })
-                    
-            except Exception as e:
-                print(f"Error screening {ticker}: {e}")
-                continue
+        logger.info(f"Starting scan for {len(all_tickers)} stocks...")
         
-        # Sort by RVOL (Highest agitation first)
-        results.sort(key=lambda x: x['rvol'], reverse=True)
+        # 2. Run Parallel (Technical Analysis - Level 1)
+        loop = asyncio.get_running_loop()
+        futures = [
+            loop.run_in_executor(self._executor, self._fetch_analyze_single, ticker)
+            for ticker in all_tickers
+        ]
         
-        return results[:limit]
+        results = await asyncio.gather(*futures)
+        
+        # 3. Filter Results (Level 1)
+        valid_results = [r for r in results if r is not None]
+        filtered = [r for r in valid_results if r['value_idr'] > 1_000_000_000] # > 1 Miliar Liquidity
+        
+        if min_rvol > 0:
+            filtered = [r for r in filtered if r['rvol'] >= min_rvol]
+            
+        # Sort by RVOL (Most active)
+        filtered.sort(key=lambda x: x['rvol'], reverse=True)
+        top_candidates = filtered[:limit]
+        
+        # 4. Enrich with Stockbit Bandarmology (Level 2 - Deep Dive)
+        # RATE LIMITED: Only 5 concurrent requests to avoid overwhelming Stockbit
+        logger.info(f"Enriching top {len(top_candidates)} stocks with Bandarmology (rate limited)...")
+        
+        # Use semaphore to limit concurrent API calls
+        semaphore = asyncio.Semaphore(5)  # Max 5 concurrent requests
+        
+        async def rate_limited_enrich(res):
+            async with semaphore:
+                await asyncio.sleep(0.1)  # Small delay to be polite to API
+                return await self._enrich_with_bandarmology(res)
+        
+        enriched_results = await asyncio.gather(*[rate_limited_enrich(res) for res in top_candidates])
+        
+        return enriched_results
 
 # Singleton
 screener_service = ScreenerService()

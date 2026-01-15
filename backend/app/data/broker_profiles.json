@@ -1,0 +1,597 @@
+{
+    "version": "1.0",
+    "last_updated": "2026-01-15",
+    "source": "IDX Official + Market Research",
+    "categories": {
+        "FOREIGN_INST": "Foreign Institution (Global Investment Banks, Asset Managers)",
+        "LOCAL_INST": "Local Institution (Domestic Banks, Insurance, Asset Managers)",
+        "RETAIL": "Retail Broker (High Individual Investor Traffic)",
+        "PROPRIETARY": "Proprietary Trading Desk",
+        "MIXED": "Mixed Client Base"
+    },
+    "brokers": {
+        "KZ": {
+            "name": "CLSA Indonesia",
+            "type": "FOREIGN_INST",
+            "origin": "FOREIGN",
+            "weight": 5
+        },
+        "MS": {
+            "name": "Morgan Stanley",
+            "type": "FOREIGN_INST",
+            "origin": "FOREIGN",
+            "weight": 5
+        },
+        "AK": {
+            "name": "Deutsche Sekuritas",
+            "type": "FOREIGN_INST",
+            "origin": "FOREIGN",
+            "weight": 5
+        },
+        "ZP": {
+            "name": "Maybank Sekuritas",
+            "type": "FOREIGN_INST",
+            "origin": "FOREIGN",
+            "weight": 5
+        },
+        "CS": {
+            "name": "Credit Suisse",
+            "type": "FOREIGN_INST",
+            "origin": "FOREIGN",
+            "weight": 5
+        },
+        "GS": {
+            "name": "Goldman Sachs",
+            "type": "FOREIGN_INST",
+            "origin": "FOREIGN",
+            "weight": 5
+        },
+        "JP": {
+            "name": "JP Morgan",
+            "type": "FOREIGN_INST",
+            "origin": "FOREIGN",
+            "weight": 5
+        },
+        "UB": {
+            "name": "UBS Securities",
+            "type": "FOREIGN_INST",
+            "origin": "FOREIGN",
+            "weight": 5
+        },
+        "ML": {
+            "name": "Merrill Lynch",
+            "type": "FOREIGN_INST",
+            "origin": "FOREIGN",
+            "weight": 5
+        },
+        "DB": {
+            "name": "Deutsche Bank",
+            "type": "FOREIGN_INST",
+            "origin": "FOREIGN",
+            "weight": 5
+        },
+        "BK": {
+            "name": "JP Morgan Sekuritas",
+            "type": "FOREIGN_INST",
+            "origin": "FOREIGN",
+            "weight": 5
+        },
+        "RX": {
+            "name": "Macquarie Sekuritas",
+            "type": "FOREIGN_INST",
+            "origin": "FOREIGN",
+            "weight": 5
+        },
+        "AI": {
+            "name": "UOB Kay Hian",
+            "type": "FOREIGN_INST",
+            "origin": "FOREIGN",
+            "weight": 4
+        },
+        "JU": {
+            "name": "UOB Sekuritas",
+            "type": "FOREIGN_INST",
+            "origin": "FOREIGN",
+            "weight": 4
+        },
+        "FS": {
+            "name": "Yuanta Sekuritas",
+            "type": "FOREIGN_INST",
+            "origin": "FOREIGN",
+            "weight": 4
+        },
+        "YU": {
+            "name": "CIMB Sekuritas",
+            "type": "FOREIGN_INST",
+            "origin": "FOREIGN",
+            "weight": 4
+        },
+        "CC": {
+            "name": "Mandiri Sekuritas",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 4
+        },
+        "NI": {
+            "name": "BNI Sekuritas",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 4
+        },
+        "SQ": {
+            "name": "BCA Sekuritas",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 4
+        },
+        "OD": {
+            "name": "Danareksa Sekuritas",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 4
+        },
+        "BB": {
+            "name": "Verdhana Sekuritas",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 3
+        },
+        "DX": {
+            "name": "Bahana Sekuritas",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 4
+        },
+        "LG": {
+            "name": "Trimegah Sekuritas",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 3
+        },
+        "KI": {
+            "name": "Ciptadana Sekuritas",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 3
+        },
+        "IF": {
+            "name": "Samuel Sekuritas",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 3
+        },
+        "DH": {
+            "name": "Sinarmas Sekuritas",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 3
+        },
+        "RF": {
+            "name": "Buana Capital",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 3
+        },
+        "ID": {
+            "name": "Anugerah Sekuritas",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "DP": {
+            "name": "DBS Vickers",
+            "type": "LOCAL_INST",
+            "origin": "FOREIGN",
+            "weight": 4
+        },
+        "SP": {
+            "name": "Sinarmas Sekuritas Prima",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 3
+        },
+        "YO": {
+            "name": "Amantara Sekuritas",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "SH": {
+            "name": "Artha Sekuritas",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "SA": {
+            "name": "Sucorinvest",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 3
+        },
+        "AT": {
+            "name": "Aldiracita Sekuritas",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "PT": {
+            "name": "Panca Global",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "BI": {
+            "name": "BRI Danareksa",
+            "type": "LOCAL_INST",
+            "origin": "DOMESTIC",
+            "weight": 4
+        },
+        "YP": {
+            "name": "Mirae Asset Sekuritas",
+            "type": "RETAIL",
+            "origin": "FOREIGN",
+            "weight": 1
+        },
+        "PD": {
+            "name": "Phillip Sekuritas",
+            "type": "RETAIL",
+            "origin": "FOREIGN",
+            "weight": 1
+        },
+        "XL": {
+            "name": "Stockbit Sekuritas",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "XC": {
+            "name": "Ajaib Sekuritas",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "KK": {
+            "name": "Phillip Securities",
+            "type": "RETAIL",
+            "origin": "FOREIGN",
+            "weight": 1
+        },
+        "AZ": {
+            "name": "Sucor Sekuritas",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "EP": {
+            "name": "MNC Sekuritas",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "GR": {
+            "name": "Panin Sekuritas",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "DR": {
+            "name": "RHB Sekuritas",
+            "type": "RETAIL",
+            "origin": "FOREIGN",
+            "weight": 2
+        },
+        "MG": {
+            "name": "Semesta Indovest",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "YJ": {
+            "name": "Lotus Andalan",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "CP": {
+            "name": "Valbury Sekuritas",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "HP": {
+            "name": "Henan Putihrai",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "AG": {
+            "name": "Kiwoom Sekuritas",
+            "type": "RETAIL",
+            "origin": "FOREIGN",
+            "weight": 1
+        },
+        "BQ": {
+            "name": "Korea Investment",
+            "type": "RETAIL",
+            "origin": "FOREIGN",
+            "weight": 1
+        },
+        "XA": {
+            "name": "NH Korindo",
+            "type": "RETAIL",
+            "origin": "FOREIGN",
+            "weight": 1
+        },
+        "ZR": {
+            "name": "CGS-CIMB",
+            "type": "RETAIL",
+            "origin": "FOREIGN",
+            "weight": 2
+        },
+        "IP": {
+            "name": "Indo Premier",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "PS": {
+            "name": "Pratama Capital",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "PG": {
+            "name": "Phintraco Sekuritas",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "PI": {
+            "name": "Pinnacle Sekuritas",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "NF": {
+            "name": "Net Sekuritas",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "NG": {
+            "name": "Nusantara Sekuritas",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "OL": {
+            "name": "Old Capital",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "RB": {
+            "name": "Reliance Sekuritas",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "TP": {
+            "name": "Tiga Pilar Sekuritas",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "TS": {
+            "name": "Trust Sekuritas",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "VS": {
+            "name": "Victoria Sekuritas",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "WG": {
+            "name": "Wanteg Sekuritas",
+            "type": "RETAIL",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "FZ": {
+            "name": "Finex Sekuritas",
+            "type": "PROPRIETARY",
+            "origin": "DOMESTIC",
+            "weight": 3
+        },
+        "AR": {
+            "name": "Artha Sekuritas Prop",
+            "type": "PROPRIETARY",
+            "origin": "DOMESTIC",
+            "weight": 3
+        },
+        "AM": {
+            "name": "Amcapital Sekuritas",
+            "type": "PROPRIETARY",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "ES": {
+            "name": "Erdikha Sekuritas",
+            "type": "PROPRIETARY",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "EZ": {
+            "name": "Evergreen Capital",
+            "type": "PROPRIETARY",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "GW": {
+            "name": "Gateway Prolink",
+            "type": "PROPRIETARY",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "HD": {
+            "name": "HD Capital",
+            "type": "PROPRIETARY",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "IB": {
+            "name": "Indomitra Sekuritas",
+            "type": "PROPRIETARY",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "IS": {
+            "name": "Inovasi Sekuritas",
+            "type": "PROPRIETARY",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "IT": {
+            "name": "Investindo Nusantara",
+            "type": "PROPRIETARY",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "BM": {
+            "name": "Binaartha Sekuritas",
+            "type": "MIXED",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "BZ": {
+            "name": "Bosera Asset",
+            "type": "MIXED",
+            "origin": "FOREIGN",
+            "weight": 2
+        },
+        "CB": {
+            "name": "Capital Bridge",
+            "type": "MIXED",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "CD": {
+            "name": "Central Asia",
+            "type": "MIXED",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "CG": {
+            "name": "Ciptadana Group",
+            "type": "MIXED",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "CK": {
+            "name": "Corfina Capital",
+            "type": "MIXED",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "CM": {
+            "name": "Ciptadana Multifinance",
+            "type": "MIXED",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "CN": {
+            "name": "CNI Sekuritas",
+            "type": "MIXED",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "CX": {
+            "name": "Mega Capital",
+            "type": "MIXED",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "DA": {
+            "name": "Danatama Makmur",
+            "type": "MIXED",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "DG": {
+            "name": "Danpac Sekuritas",
+            "type": "MIXED",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "DI": {
+            "name": "Dinamika Usaha Jaya",
+            "type": "MIXED",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "DK": {
+            "name": "Dua Kuda Sekuritas",
+            "type": "MIXED",
+            "origin": "DOMESTIC",
+            "weight": 1
+        },
+        "DN": {
+            "name": "Dana Saham",
+            "type": "MIXED",
+            "origin": "DOMESTIC",
+            "weight": 2
+        },
+        "DQ": {
+            "name": "Danpac Futures",
+            "type": "MIXED",
+            "origin": "DOMESTIC",
+            "weight": 2
+        }
+    },
+    "smart_money_codes": [
+        "KZ",
+        "MS",
+        "AK",
+        "ZP",
+        "CS",
+        "GS",
+        "JP",
+        "UB",
+        "ML",
+        "DB",
+        "BK",
+        "RX"
+    ],
+    "retail_codes": [
+        "YP",
+        "PD",
+        "XL",
+        "XC",
+        "KK",
+        "AZ",
+        "EP",
+        "MG",
+        "YJ",
+        "CP",
+        "HP",
+        "AG",
+        "BQ",
+        "XA"
+    ],
+    "domestic_institution_codes": [
+        "CC",
+        "NI",
+        "SQ",
+        "OD",
+        "BB",
+        "DX",
+        "LG",
+        "KI",
+        "IF",
+        "DH",
+        "BI"
+    ]
+}

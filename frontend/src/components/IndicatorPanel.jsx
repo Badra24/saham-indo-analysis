@@ -36,6 +36,7 @@ function IndicatorPanel({ indicators, onToggle }) {
                 { key: 'vwap', label: 'VWAP', color: '#06b6d4' },
                 { key: 'obv', label: 'OBV', color: '#0ea5e9', description: 'On-Balance Volume' },
                 { key: 'volumeProfile', label: 'Volume Anomaly', color: '#14b8a6', description: 'Detects unusual volume spikes' },
+                { key: 'bubbleOverlay', label: 'Transaction Bubbles', color: '#f59e0b', description: 'Volume visualizer overlay' },
             ]
         },
         {

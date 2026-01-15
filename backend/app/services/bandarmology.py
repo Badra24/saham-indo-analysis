@@ -188,6 +188,273 @@ class BandarmologyEngine:
             'retail_flow_ratio': 0.0, 
             'foreign_flow_ratio': 0.0
         }
+    
+    def calculate_aqs(self, broker_history: List[Dict], price_history: List[float], 
+                      current_broker_data: Optional[Dict] = None) -> Dict:
+        """
+        Calculate Accumulation Quality Score (AQS) - Composite metric.
+        
+        Formula: AQS = (0.4 × C) + (0.3 × K) + (0.3 × P)
+        
+        Where:
+        - C = Concentration (Top3 Net Buy / Total Volume)
+        - K = Consistency (Days with Net Buy > 0 / N days)
+        - P = Price Control (Correlation between Top1 flow and price change)
+        
+        Reference: Research Thesis Section 4.1
+        
+        Args:
+            broker_history: List of daily broker summaries (last 20 days)
+            price_history: List of closing prices (last 21 days for diff)
+            current_broker_data: Current day broker data for concentration
+            
+        Returns:
+            Dict with aqs score and components
+        """
+        import numpy as np
+        
+        try:
+            # Default values if insufficient data
+            if len(price_history) < 5:
+                return {
+                    "aqs": 50.0,
+                    "grade": "C",
+                    "concentration": 0.5,
+                    "consistency": 0.5,
+                    "price_control": 0.0,
+                    "note": "Insufficient historical data"
+                }
+            
+            # C - Concentration (from current day or latest)
+            if current_broker_data:
+                analysis = self.analyze_broker_summary(current_broker_data)
+                bcr = analysis.get('bcr', 1.0)
+                concentration = min(bcr / 3.0, 1.0)  # Normalize to 0-1 (BCR 3+ = max)
+            else:
+                concentration = 0.5
+            
+            # K - Consistency (rolling N days net buy positive)
+            if broker_history and len(broker_history) > 0:
+                net_buys = []
+                for day in broker_history[-20:]:
+                    buyers = day.get('top_buyers', [])
+                    sellers = day.get('top_sellers', [])
+                    buy_val = sum(float(b.get('value', b.get('val', 0))) for b in buyers[:3])
+                    sell_val = sum(float(s.get('value', s.get('val', 0))) for s in sellers[:3])
+                    net_buys.append(buy_val - sell_val)
+                
+                n_days = len(net_buys) if net_buys else 1
+                positive_days = sum(1 for nb in net_buys if nb > 0)
+                consistency = positive_days / n_days
+            else:
+                consistency = 0.5
+            
+            # P - Price Control (correlation between flow and price change)
+            if len(price_history) >= 5:
+                price_changes = np.diff(price_history[-21:]) if len(price_history) >= 21 else np.diff(price_history)
+                
+                if broker_history and len(broker_history) >= len(price_changes):
+                    # Get top1 flows aligned with price changes
+                    top1_flows = []
+                    for day in broker_history[-len(price_changes):]:
+                        buyers = day.get('top_buyers', [])
+                        sellers = day.get('top_sellers', [])
+                        top1_buy = float(buyers[0].get('value', 0)) if buyers else 0
+                        top1_sell = float(sellers[0].get('value', 0)) if sellers else 0
+                        top1_flows.append(top1_buy - top1_sell)
+                    
+                    if len(top1_flows) == len(price_changes) and len(top1_flows) > 2:
+                        corr_matrix = np.corrcoef(top1_flows, price_changes)
+                        price_control = corr_matrix[0, 1] if not np.isnan(corr_matrix[0, 1]) else 0
+                    else:
+                        price_control = 0
+                else:
+                    price_control = 0
+            else:
+                price_control = 0
+            
+            # Calculate AQS (0-100 scale)
+            aqs_raw = (0.4 * concentration) + (0.3 * consistency) + (0.3 * max(0, price_control))
+            aqs = round(aqs_raw * 100, 2)
+            
+            # Grade assignment
+            if aqs >= 80:
+                grade = "A"
+            elif aqs >= 60:
+                grade = "B"
+            elif aqs >= 40:
+                grade = "C"
+            elif aqs >= 20:
+                grade = "D"
+            else:
+                grade = "E"
+            
+            return {
+                "aqs": aqs,
+                "grade": grade,
+                "concentration": round(concentration, 3),
+                "consistency": round(consistency, 3),
+                "price_control": round(price_control, 3),
+                "interpretation": self._interpret_aqs(aqs, concentration, consistency, price_control)
+            }
+            
+        except Exception as e:
+            return {
+                "aqs": 50.0,
+                "grade": "C",
+                "error": str(e)
+            }
+    
+    def _interpret_aqs(self, aqs: float, c: float, k: float, p: float) -> str:
+        """Generate human-readable AQS interpretation."""
+        parts = []
+        
+        if aqs >= 70:
+            parts.append("Strong accumulation quality")
+        elif aqs >= 50:
+            parts.append("Moderate accumulation")
+        else:
+            parts.append("Weak/No accumulation")
+        
+        if c >= 0.7:
+            parts.append("highly concentrated buying")
+        if k >= 0.7:
+            parts.append("consistent daily buying")
+        if p >= 0.5:
+            parts.append("bandar controls price")
+        elif p < 0:
+            parts.append("price moves against bandar flow")
+        
+        return "; ".join(parts) if parts else "Neutral"
+    
+    def calculate_churn_ratio(self, total_volume: float, net_ownership_change: float,
+                               price_change_pct: float = 0) -> Dict:
+        """
+        Detect potential wash trading / churning activity.
+        
+        Formula: Churn Ratio = Total Volume / |Net Ownership Change|
+        
+        Interpretation:
+        - High Churn + Price Up = Distribution (Fake Move) - BEARISH
+        - Low Churn + Price Up = Genuine Accumulation - BULLISH
+        - High Churn + Price Flat = Wash Trading - AVOID
+        
+        Reference: Research Thesis Section 8, Point 2
+        
+        Args:
+            total_volume: Total trading volume
+            net_ownership_change: Net change in ownership (buy - sell)
+            price_change_pct: Price change percentage (optional, for context)
+            
+        Returns:
+            Dict with churn_ratio and interpretation
+        """
+        if net_ownership_change == 0:
+            return {
+                "churn_ratio": float('inf'),
+                "level": "EXTREME",
+                "warning": "PURE_CHURNING",
+                "signal": "AVOID",
+                "interpretation": "Zero net change with volume = Pure wash trading"
+            }
+        
+        churn = abs(total_volume / net_ownership_change)
+        
+        # Determine churn level
+        if churn > 10:
+            level = "EXTREME"
+            base_warning = "EXTREME_CHURN"
+        elif churn > 5:
+            level = "HIGH"
+            base_warning = "HIGH_CHURN_RISK"
+        elif churn > 2:
+            level = "MODERATE"
+            base_warning = "MODERATE_CHURN"
+        else:
+            level = "LOW"
+            base_warning = "GENUINE_ACTIVITY"
+        
+        # Context with price movement
+        if level in ["HIGH", "EXTREME"] and price_change_pct > 1:
+            signal = "BEARISH"
+            interpretation = f"High churn ({churn:.1f}x) with price up {price_change_pct:.1f}% = Likely distribution/fake move"
+        elif level in ["HIGH", "EXTREME"] and price_change_pct < -1:
+            signal = "BULLISH_REVERSAL"
+            interpretation = f"High churn ({churn:.1f}x) with price down = Possible accumulation shakeout"
+        elif level == "LOW" and price_change_pct > 1:
+            signal = "BULLISH"
+            interpretation = f"Low churn ({churn:.1f}x) with price up = Genuine accumulation"
+        elif level == "LOW":
+            signal = "NEUTRAL"
+            interpretation = f"Low churn ({churn:.1f}x) = Normal trading activity"
+        else:
+            signal = "CAUTION"
+            interpretation = f"Churn ratio {churn:.1f}x - Monitor closely"
+        
+        return {
+            "churn_ratio": round(churn, 2),
+            "level": level,
+            "warning": base_warning,
+            "signal": signal,
+            "interpretation": interpretation
+        }
+
+    def calculate_hhi(self, broker_data: Dict) -> Dict:
+        """
+        Calculate Herfindahl-Hirschman Index (HHI) for broker concentration.
+        
+        Formula: Sum of squared market shares per broker.
+        HHI Range: 0 to 10000
+        - HHI < 1500: Fragmented (Retail Distributed)
+        - 1500 < HHI < 2500: Moderately Concentrated
+        - HHI > 2500: Highly Concentrated (Bandar Dominant)
+        """
+        buyers = broker_data.get('top_buyers', [])
+        
+        # Calculate Total Buy Value of Top Buyers (as proxy for market accumulation)
+        buy_value_total = sum(float(b.get('value', 0)) for b in buyers)
+        
+        if buy_value_total == 0:
+             return {"hhi_buy": 0, "interpretation": "NO DATA"}
+             
+        # Calculate HHI based on accumulation share
+        hhi_buy = sum((float(b['value']) / buy_value_total * 100) ** 2 for b in buyers)
+            
+        interpretation = "FRAGMENTED"
+        if hhi_buy > 2500:
+            interpretation = "HIGHLY_CONCENTRATED"
+        elif hhi_buy > 1500:
+            interpretation = "MODERATE"
+            
+        return {
+            "hhi_buy": round(hhi_buy, 2),
+            "interpretation": interpretation
+        }
+
+    def calculate_bandar_vwap(self, broker_data: Dict) -> Dict:
+        """
+        Calculate Volume Weighted Average Price (VWAP) of the Top 3 Net Buyers.
+        This acts as the 'Bandar's Average Price' - a dynamic support level.
+        """
+        top_buyers = broker_data.get('top_buyers', [])[:3] # Focus on Top 3 (Bandar core)
+        
+        total_vol = 0
+        weighted_price_sum = 0
+        
+        for b in top_buyers:
+            vol = float(b.get('volume', 0))
+            val = float(b.get('value', 0))
+            if vol > 0:
+                avg_price = val / vol 
+                weighted_price_sum += (avg_price * vol)
+                total_vol += vol
+                
+        if total_vol == 0:
+            return {"bandar_vwap": 0}
+            
+        bandar_vwap = weighted_price_sum / total_vol
+        return {"bandar_vwap": int(bandar_vwap)}
+
     def build_broker_graph(self, broker_data: Dict) -> Dict:
         """
         Builds a Network Graph of Broker Interaction (Phase 18).

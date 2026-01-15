@@ -154,7 +154,7 @@ def calculate_fundamental_score(
         display_breakdown["ev_ebitda_component"] = ev_score
     score_components.append(ev_score)
 
-    # 4. PCF Component (0-15 points) - NEW
+    # 4. PCF Component (0-15 points) - Adjusted for Indonesia Market
     pcf_score = 0
     if financial_data.pcf:
         pcf = financial_data.pcf
@@ -162,15 +162,18 @@ def calculate_fundamental_score(
         if pcf < 0: # Negative cash flow
             pcf_score = 0 
             display_breakdown["notes"].append("🚨 Negative Price/CashFlow")
-        elif pcf < 5: # Deep Value
+        elif pcf < 10: # Deep Value (rare in IDX)
             pcf_score = 15
-            display_breakdown["notes"].append("✓ Deep Value (PCF < 5)")
-        elif pcf < 10: # Attractive
-            pcf_score = 10
-        elif pcf < 15: # Fair
+            display_breakdown["notes"].append("✓ Deep Value (PCF < 10)")
+        elif pcf < 20: # Attractive
+            pcf_score = 12
+            display_breakdown["notes"].append("✓ Attractive (PCF < 20)")
+        elif pcf < 40: # Fair for large caps (BBCA, BMRI, etc)
+            pcf_score = 8
+        elif pcf < 60: # Acceptable for premium stocks
             pcf_score = 5
         else:
-            pcf_score = 0
+            pcf_score = 2  # Still give small points
             
         display_breakdown["pcf_component"] = pcf_score
     score_components.append(pcf_score)

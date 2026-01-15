@@ -1,4 +1,4 @@
-import { createChart, ColorType, CandlestickSeries, LineSeries, HistogramSeries } from 'lightweight-charts';
+import { createChart, ColorType, CandlestickSeries, LineSeries, HistogramSeries, LineStyle } from 'lightweight-charts';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import DrawingToolbar from './DrawingToolbar';
 import DrawingCanvas from './DrawingCanvas';
@@ -61,6 +61,7 @@ export const StockChart = ({ candleData, consensusData, indicatorData, activeInd
     const mainChartInstance = useRef(null);
     const candleSeriesRef = useRef(null);
     const mainSeriesRefs = useRef({}); // For overlays
+    const vwapPriceLineRef = useRef(null); // Ref for Bandar VWAP Price Line
 
     // Pane Refs
     const paneRefs = useRef({}); // { [paneId]: divElement }
@@ -248,7 +249,35 @@ export const StockChart = ({ candleData, consensusData, indicatorData, activeInd
     useEffect(() => {
         if (!mainChartInstance.current || !candleData || candleData.length === 0) return;
         candleSeriesRef.current.setData(candleData);
-    }, [candleData, isChartReady]);
+
+        // --- Bandar VWAP Overlay (Price Line) ---
+        // Clear previous price lines (unfortunately lightweight-charts doesn't have clearPriceLines, 
+        // need to keep ref to remove specific one or just remove all if possible. 
+        // Actually, we can store the priceLine object in a ref).
+
+        if (consensusData?.bandarmology?.bandar_vwap) {
+            const vwapValue = consensusData.bandarmology.bandar_vwap;
+
+            // Remove existing line if any
+            if (vwapPriceLineRef.current) {
+                candleSeriesRef.current.removePriceLine(vwapPriceLineRef.current);
+                vwapPriceLineRef.current = null;
+            }
+
+            // Add new PriceLine if value is valid
+            if (vwapValue > 0) {
+                vwapPriceLineRef.current = candleSeriesRef.current.createPriceLine({
+                    price: vwapValue,
+                    color: '#facc15', // Yellow for visibility
+                    lineWidth: 2,
+                    lineStyle: LineStyle.Dashed,
+                    axisLabelVisible: true,
+                    title: 'Bandar VWAP',
+                });
+            }
+        }
+    }, [candleData, isChartReady, consensusData]); // Added consensusData dependency
+
 
     // Data Updates (Overlays & Panes)
     useEffect(() => {
@@ -298,10 +327,56 @@ export const StockChart = ({ candleData, consensusData, indicatorData, activeInd
                 });
             });
 
-            // --- Special: Volume Anomaly Markers ---
+            // --- Markers: Volume Anomaly, Wyckoff & Transaction Bubbles ---
+            let markers = [];
+
+            // 0. Bubble Overlay (Transaction Volume)
+            if (activeIndicators['bubbleOverlay'] && candleData && candleData.length > 20) {
+                // Calculate SMA 20 Volume
+                // Simple moving average logic on the fly or pre-calced?
+                // Let's do a simple calculation since we have full candleData
+                for (let i = 20; i < candleData.length; i++) {
+                    const current = candleData[i];
+                    const vol = current.volume || 0; // Assuming candleData has volume? 
+                    // Wait, candleData passed to lightweight-charts usually has { time, open, high, low, close }
+                    // We need to ensure volume is there. Usually it is not in the main CandlestickSeries data unless we put it there.
+                    // IMPORTANT: StockChart.jsx receives `candleData`. Let's check `App.jsx` usage.
+                    // App.jsx: setCandleData(data.historical_prices).
+                    // We need to check if `historical_prices` has volume.
+                    // If not, we can't do this.
+
+                    // Assuming it has volume, let's proceed.
+                    if (vol > 0) {
+                        let sumVol = 0;
+                        for (let j = 1; j <= 20; j++) sumVol += (candleData[i - j].volume || 0);
+                        const avgVol = sumVol / 20;
+
+                        if (avgVol > 0 && vol > avgVol * 1.5) {
+                            const isUp = current.close >= current.open;
+                            const ratio = vol / avgVol;
+
+                            let size = 1;
+                            let text = '';
+                            if (ratio > 5.0) { size = 3; text = ''; } // Large
+                            else if (ratio > 3.0) { size = 2; }       // Medium
+
+                            markers.push({
+                                time: current.time,
+                                position: isUp ? 'belowBar' : 'aboveBar',
+                                color: isUp ? 'rgba(34, 197, 94, 0.5)' : 'rgba(239, 68, 68, 0.5)', // Transparent green/red
+                                shape: 'circle',
+                                text: text,
+                                size: size
+                            });
+                        }
+                    }
+                }
+            }
+
+            // 1. Volume Anomaly
             const volumeAnomalyKey = 'volume_anomaly';
             if (activeIndicators['volumeProfile'] && lines[volumeAnomalyKey]) {
-                const markers = lines[volumeAnomalyKey]
+                const volMarkers = lines[volumeAnomalyKey]
                     .filter(d => d.value === 1)
                     .map(d => ({
                         time: d.time,
@@ -310,14 +385,28 @@ export const StockChart = ({ candleData, consensusData, indicatorData, activeInd
                         shape: 'arrowDown',
                         text: 'High Vol',
                     }));
+                markers = [...markers, ...volMarkers];
+            }
 
-                if (candleSeriesRef.current && typeof candleSeriesRef.current.setMarkers === 'function') {
-                    candleSeriesRef.current.setMarkers(markers);
+            // 2. Wyckoff Pattern (Last Candle)
+            if (consensusData?.bandarmology?.wyckoff) {
+                const w = consensusData.bandarmology.wyckoff;
+                if (w.pattern && w.pattern !== "None" && candleData.length > 0) {
+                    const lastTime = candleData[candleData.length - 1].time;
+                    const isBullish = (w.action || "").includes('BUY') || (w.action || "").includes('ACCUMULATE');
+                    markers.push({
+                        time: lastTime,
+                        position: isBullish ? 'belowBar' : 'aboveBar',
+                        color: isBullish ? '#22c55e' : '#ef4444',
+                        shape: isBullish ? 'arrowUp' : 'arrowDown',
+                        text: `${w.pattern}`,
+                        size: 2
+                    });
                 }
-            } else {
-                if (candleSeriesRef.current && typeof candleSeriesRef.current.setMarkers === 'function') {
-                    candleSeriesRef.current.setMarkers([]);
-                }
+            }
+
+            if (candleSeriesRef.current && typeof candleSeriesRef.current.setMarkers === 'function') {
+                candleSeriesRef.current.setMarkers(markers);
             }
         }
 
